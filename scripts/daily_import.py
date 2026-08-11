@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from webhook.config import settings
 from webhook.excel_writer import append_job
 from webhook.extractor import extract_job
+from webhook.models import Message
 
 STATE_PATH = Path(__file__).parent.parent / "data" / "import_state.json"
 MAX_PROCESSED_MIDS = 2000  # rolling window to guard against boundary duplicates
@@ -127,19 +128,23 @@ def main() -> None:
     skipped_count = 0
     max_ts_seen = state["last_timestamp_ms"]
 
-    for msg in messages:
-        body = msg.get("body") or {}
-        mid = body.get("mid")
-        text = body.get("text")
-        ts = msg.get("timestamp", 0)
-        sender = msg.get("sender") or {}
-        sender_name = sender.get("first_name", "")
+    for raw_msg in messages:
+        message = Message.model_validate(raw_msg)
+        mid = message.body.mid if message.body else None
+        text = message.resolve_text()  # falls back to link.message.text for forwards
+        ts = message.timestamp or 0
+        sender_name = message.sender.first_name if message.sender else ""
 
         max_ts_seen = max(max_ts_seen, ts)
 
-        if not text or not mid:
+        if not mid:
             continue
         if mid in processed_mids:
+            continue
+        if not text:
+            print(f"--- {sender_name}: (нет текста — фото/видео без подписи), пропущено")
+            skipped_count += 1
+            processed_mids.add(mid)
             continue
 
         print(f"--- {sender_name}: {text!r}")

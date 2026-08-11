@@ -112,7 +112,7 @@ async def webhook(
         sender_name = msg.sender.display_name if msg.sender else "unknown"
         sender_id = msg.sender.user_id if msg.sender else None
         chat_id = msg.recipient.chat_id if msg.recipient else None
-        text = msg.body.text if msg.body else None
+        text = msg.resolve_text()  # falls back to link.message.text for forwarded messages
         mid = msg.body.mid if msg.body else None
 
         log.info(

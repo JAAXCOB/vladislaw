@@ -105,6 +105,18 @@ class Message(BaseModel):
     stat: Optional[dict[str, Any]] = None
     url: Optional[str] = None
 
+    def resolve_text(self) -> Optional[str]:
+        """
+        Returns the message text, falling back to the forwarded message's
+        text when this message is itself empty (MAX puts forwarded content
+        in `link.message.text`, leaving `body.text` blank).
+        """
+        if self.body and self.body.text:
+            return self.body.text
+        if self.link and self.link.message and self.link.message.text:
+            return self.link.message.text
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Update (discriminated by update_type)
