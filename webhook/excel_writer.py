@@ -47,16 +47,14 @@ def _sheet_name(dt: datetime) -> str:
 
 
 def _format_services(job: ExtractedJob) -> str:
-    """Format services list into a single string like 'Эвакуация + подкаты'."""
+    """
+    Format services list to match the existing sheet style, e.g.
+    'Эвакуация + 25 км за МКАД' or 'Ложная подача'.
+    No prices in this column — the total goes in the Сумма column.
+    """
     if not job.services:
         return ""
-    parts = []
-    for svc in job.services:
-        name = svc.name.capitalize()
-        if svc.price_rub is not None:
-            parts.append(f"{name} {svc.price_rub}р")
-        else:
-            parts.append(name)
+    parts = [svc.name.strip().capitalize() for svc in job.services if svc.name.strip()]
     return " + ".join(parts)
 
 
