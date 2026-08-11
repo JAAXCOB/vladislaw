@@ -15,7 +15,6 @@ import os
 import sys
 import time
 
-import certifi
 import httpx
 from dotenv import load_dotenv
 
@@ -34,7 +33,9 @@ def main() -> None:
 
     marker: int | None = None
 
-    with httpx.Client(timeout=POLL_TIMEOUT + 5, verify=certifi.where()) as client:
+    # verify=False: platform-api2.max.ru uses a Russian government CA (Минцифры)
+    # not included in standard CA bundles. Safe for local dev polling only.
+    with httpx.Client(timeout=POLL_TIMEOUT + 5, verify=False) as client:
         while True:
             params: dict[str, object] = {"timeout": POLL_TIMEOUT}
             if marker is not None:
