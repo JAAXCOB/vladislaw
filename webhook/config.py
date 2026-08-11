@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     yandex_api_key: str = ""
     yandex_folder_id: str = ""
+    excel_file_path: str = ""
 
     MAX_API_BASE: str = "https://platform-api2.max.ru"
     YANDEX_LLM_URL: str = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"

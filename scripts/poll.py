@@ -23,6 +23,7 @@ load_dotenv()
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from webhook.extractor import extract_job
+from webhook.excel_writer import append_job
 
 MAX_API_BASE = os.getenv("MAX_API_BASE", "https://platform-api2.max.ru")
 TOKEN = os.getenv("MAX_BOT_TOKEN", "")
@@ -84,6 +85,15 @@ def main() -> None:
                         try:
                             job = extract_job(text, sender_name)
                             print(json.dumps(job.model_dump(), ensure_ascii=False, indent=2))
+
+                            excel_path = os.getenv("EXCEL_FILE_PATH", "")
+                            if excel_path:
+                                timestamp_ms = update.get("timestamp", 0)
+                                sheet = append_job(excel_path, job, timestamp_ms, text)
+                                review_mark = " ⚠️  ТРЕБУЕТ ПРОВЕРКИ" if job.needs_review else ""
+                                print(f"=== EXCEL: записано в лист '{sheet}'{review_mark} ===")
+                            else:
+                                print("[excel] EXCEL_FILE_PATH не задан — запись пропущена")
                         except Exception as exc:
                             print(f"[extraction error] {exc}")
                         print()
