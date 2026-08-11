@@ -11,6 +11,7 @@ import json
 import os
 import sys
 
+import certifi
 import httpx
 from dotenv import load_dotenv
 
@@ -45,7 +46,7 @@ def main() -> None:
     print(f"  Update types: {SUBSCRIBE_ONLY_TYPES}")
     print()
 
-    with httpx.Client() as client:
+    with httpx.Client(verify=certifi.where()) as client:
         resp = client.post(
             f"{MAX_API_BASE}/subscriptions",
             headers={

@@ -15,6 +15,7 @@ import os
 import sys
 import time
 
+import certifi
 import httpx
 from dotenv import load_dotenv
 
@@ -33,7 +34,7 @@ def main() -> None:
 
     marker: int | None = None
 
-    with httpx.Client(timeout=POLL_TIMEOUT + 5) as client:
+    with httpx.Client(timeout=POLL_TIMEOUT + 5, verify=certifi.where()) as client:
         while True:
             params: dict[str, object] = {"timeout": POLL_TIMEOUT}
             if marker is not None:
