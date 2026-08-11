@@ -146,8 +146,8 @@ def main() -> None:
         try:
             job = extract_job(text, sender_name)
 
-            if not job.is_job_report:
-                print("    -> не отчёт о работе, пропущено")
+            if not job.is_closed_job_report:
+                print("    -> заявка не закрыта / не по теме, пропущено")
                 skipped_count += 1
                 processed_mids.add(mid)
                 continue
