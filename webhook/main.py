@@ -18,6 +18,7 @@ from webhook.config import settings
 from webhook.excel_writer import append_job
 from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
+from webhook.payroll_writer import append_salary_row
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -42,9 +43,9 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def process_message(text: str, sender_name: str, timestamp_ms: int) -> None:
+def process_message(text: str, sender_name: str, employee_name: str, timestamp_ms: int) -> None:
     """
-    Runs AI extraction and writes the result to Excel.
+    Runs AI extraction and writes the result to Excel (and payroll, if configured).
     Executed as a background task so the webhook response isn't delayed.
     """
     try:
@@ -66,6 +67,16 @@ def process_message(text: str, sender_name: str, timestamp_ms: int) -> None:
         log.info("Written to sheet '%s' (needs_review=%s)", sheet, job.needs_review)
     except Exception:
         log.exception("Failed to write to Excel for message: %r", text)
+        return
+
+    if settings.payroll_file_path:
+        try:
+            payroll_sheet, matched = append_salary_row(
+                settings.payroll_file_path, job, timestamp_ms, employee_name, text
+            )
+            log.info("Payroll sheet '%s' (employee=%s, matched=%s)", payroll_sheet, employee_name, matched)
+        except Exception:
+            log.exception("Failed to write to payroll file for message: %r", text)
 
 
 @app.post("/webhook", status_code=status.HTTP_200_OK)
@@ -125,7 +136,8 @@ async def webhook(
         )
 
         if text:
-            background_tasks.add_task(process_message, text, sender_name, update.timestamp)
+            employee_name = msg.effective_sender_name()
+            background_tasks.add_task(process_message, text, sender_name, employee_name, update.timestamp)
     else:
         log.info("UPDATE type=%s | timestamp=%s", update.update_type, update.timestamp)
 

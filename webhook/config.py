@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     yandex_api_key: str = ""
     yandex_folder_id: str = ""
     excel_file_path: str = ""
+    payroll_file_path: str = ""
     max_chat_id: str = ""
 
     MAX_API_BASE: str = "https://platform-api2.max.ru"

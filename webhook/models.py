@@ -117,6 +117,19 @@ class Message(BaseModel):
             return self.link.message.text
         return None
 
+    def effective_sender_name(self) -> str:
+        """
+        Returns the name of whoever actually did the job. For a forwarded
+        message this is the original sender (link.sender) — e.g. the
+        driver "Валера" — not the person who forwarded it into the bot's
+        chat. Falls back to the direct sender otherwise.
+        """
+        if self.link and self.link.sender:
+            return self.link.sender.first_name
+        if self.sender:
+            return self.sender.first_name
+        return ""
+
 
 # ---------------------------------------------------------------------------
 # Update (discriminated by update_type)

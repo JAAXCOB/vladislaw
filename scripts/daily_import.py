@@ -28,6 +28,7 @@ from webhook.config import settings
 from webhook.excel_writer import append_job
 from webhook.extractor import extract_job
 from webhook.models import Message
+from webhook.payroll_writer import append_salary_row
 
 STATE_PATH = Path(__file__).parent.parent / "data" / "import_state.json"
 MAX_PROCESSED_MIDS = 2000  # rolling window to guard against boundary duplicates
@@ -126,6 +127,8 @@ def main() -> None:
     new_count = 0
     review_count = 0
     skipped_count = 0
+    payroll_written = 0
+    payroll_unmatched = 0
     max_ts_seen = state["last_timestamp_ms"]
 
     for raw_msg in messages:
@@ -134,6 +137,7 @@ def main() -> None:
         text = message.resolve_text()  # falls back to link.message.text for forwards
         ts = message.timestamp or 0
         sender_name = message.sender.first_name if message.sender else ""
+        employee_name = message.effective_sender_name()  # forwarded original sender if applicable
 
         max_ts_seen = max(max_ts_seen, ts)
 
@@ -164,6 +168,21 @@ def main() -> None:
                 print(f"    -> записано в '{sheet}', ТРЕБУЕТ ПРОВЕРКИ: {job.review_reason}")
             else:
                 print(f"    -> записано в '{sheet}'")
+
+            if settings.payroll_file_path:
+                try:
+                    payroll_sheet, matched = append_salary_row(
+                        settings.payroll_file_path, job, ts, employee_name, text
+                    )
+                    if matched:
+                        payroll_written += 1
+                        print(f"    -> зарплата: '{payroll_sheet}', сотрудник={employee_name}")
+                    else:
+                        payroll_unmatched += 1
+                        print(f"    -> зарплата: строка в '{payroll_sheet}' добавлена, "
+                              f"но сотрудник '{employee_name}' не распознан — впишите вручную")
+                except Exception as exc:
+                    print(f"    -> ОШИБКА зарплатного файла: {exc}")
         except Exception as exc:
             print(f"    -> ОШИБКА: {exc}")
             continue
@@ -174,10 +193,13 @@ def main() -> None:
     state["processed_mids"] = list(processed_mids)
     save_state(state)
 
-    print(
+    summary = (
         f"\nГотово. Новых записей: {new_count} (из них требуют проверки: {review_count}), "
         f"пропущено нерабочих сообщений: {skipped_count}."
     )
+    if settings.payroll_file_path:
+        summary += f" Зарплата: записано {payroll_written}, не распознан сотрудник у {payroll_unmatched}."
+    print(summary)
 
 
 def chat_id_label(chat_id: str) -> str:
