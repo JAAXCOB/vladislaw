@@ -46,10 +46,18 @@ def save_state(state: dict) -> None:
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2))
 
 
-def fetch_all_messages(client: httpx.Client, chat_id: str, from_ms: int, to_ms: int) -> list[dict]:
-    """Paginate through GET /messages until the full [from_ms, to_ms) window is covered."""
+def fetch_all_messages(client: httpx.Client, chat_id: str, oldest_ms: int, newest_ms: int) -> list[dict]:
+    """
+    Paginate through GET /messages until the full [oldest_ms, newest_ms] window is covered.
+
+    MAX returns messages newest-first, and per the API's own description:
+    "Messages traversed in reverse direction ... if you use `from` and `to`
+    parameters, `to` must be less than `from`". So `from` is the upper
+    (more recent) bound and `to` is the lower (older) bound — the opposite
+    of what the names might suggest.
+    """
     all_messages: list[dict] = []
-    window_start = from_ms
+    window_end = newest_ms  # this is the "from" query param — moves backward each page
 
     while True:
         resp = client.get(
@@ -57,8 +65,8 @@ def fetch_all_messages(client: httpx.Client, chat_id: str, from_ms: int, to_ms: 
             headers={"Authorization": settings.max_bot_token},
             params={
                 "chat_id": chat_id,
-                "from": window_start,
-                "to": to_ms,
+                "from": window_end,
+                "to": oldest_ms,
                 "count": PAGE_SIZE,
             },
         )
@@ -74,11 +82,13 @@ def fetch_all_messages(client: httpx.Client, chat_id: str, from_ms: int, to_ms: 
         if len(batch) < PAGE_SIZE:
             break
 
-        # Advance the window past the last message received to avoid re-fetching it
-        last_ts = max(m.get("timestamp", 0) for m in batch)
-        if last_ts <= window_start:
+        # Move the window backward past the oldest message in this page
+        min_ts = min(m.get("timestamp", 0) for m in batch)
+        if min_ts >= window_end:
             break
-        window_start = last_ts + 1
+        window_end = min_ts - 1
+        if window_end <= oldest_ms:
+            break
 
     return all_messages
 
