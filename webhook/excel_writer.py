@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import openpyxl
-from openpyxl.styles import PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill
 
 from webhook.schema import ExtractedJob
 
@@ -37,6 +37,11 @@ MONTH_NAMES = {
 
 # Yellow fill for rows that need human review
 REVIEW_FILL = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
+# Matches the existing sheet's cell style (Calibri 11, centered, mm-dd-yy dates)
+DEFAULT_FONT = Font(name="Calibri", size=11)
+CENTER_ALIGN = Alignment(horizontal="center")
+DATE_FORMAT = "mm-dd-yy"
 
 
 def _sheet_name(dt: datetime) -> str:
@@ -92,11 +97,16 @@ def append_job(
     row = [dt.date(), plate, service_text, amount]
     ws.append(row)
 
-    # Highlight rows that need human review
+    # Apply the same style as existing rows: Calibri 11, centered, mm-dd-yy dates
     last_row = ws.max_row
-    if job.needs_review:
-        for col in range(1, 5):
-            ws.cell(row=last_row, column=col).fill = REVIEW_FILL
+    for col in range(1, 5):
+        cell = ws.cell(row=last_row, column=col)
+        cell.font = DEFAULT_FONT
+        cell.alignment = CENTER_ALIGN
+        if job.needs_review:
+            cell.fill = REVIEW_FILL
+
+    ws.cell(row=last_row, column=1).number_format = DATE_FORMAT
 
     wb.save(path)
 
