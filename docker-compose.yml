@@ -1,0 +1,29 @@
+services:
+  webhook:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Path inside the container — matches the volume mount below
+      EXCEL_FILE_PATH: /data/excel/evacuations.xlsx
+    volumes:
+      - ./data/excel:/data/excel
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - webhook
+
+volumes:
+  caddy_data:
+  caddy_config:

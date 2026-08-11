@@ -1,9 +1,9 @@
 """
-Phase 1 PoC — MAX webhook receiver.
+MAX webhook receiver — production entry point.
 
-Goal: prove that MAX delivers group messages to our endpoint and log
-the raw payload so we can inspect the real JSON structure before
-building any business logic.
+Receives message_created events, runs AI extraction, writes the
+result into the existing Excel file. Runs continuously on a server
+(unlike scripts/poll.py, which is for local dev only).
 """
 import json
 import logging
@@ -11,10 +11,12 @@ import secrets
 import sys
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, Request, status
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
 from pydantic import ValidationError
 
 from webhook.config import settings
+from webhook.excel_writer import append_job
+from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
 
 # ---------------------------------------------------------------------------
@@ -32,7 +34,7 @@ log = logging.getLogger("max_webhook")
 # App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="MAX Webhook PoC", version="0.1.0")
+app = FastAPI(title="MAX Webhook", version="0.2.0")
 
 
 @app.get("/health")
@@ -40,9 +42,32 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def process_message(text: str, sender_name: str, timestamp_ms: int) -> None:
+    """
+    Runs AI extraction and writes the result to Excel.
+    Executed as a background task so the webhook response isn't delayed.
+    """
+    try:
+        job = extract_job(text, sender_name)
+    except Exception:
+        log.exception("Extraction failed for message: %r", text)
+        return
+
+    if not settings.excel_file_path:
+        log.warning("EXCEL_FILE_PATH not set — skipping Excel write")
+        return
+
+    try:
+        sheet = append_job(settings.excel_file_path, job, timestamp_ms, text)
+        log.info("Written to sheet '%s' (needs_review=%s)", sheet, job.needs_review)
+    except Exception:
+        log.exception("Failed to write to Excel for message: %r", text)
+
+
 @app.post("/webhook", status_code=status.HTTP_200_OK)
 async def webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     x_max_bot_api_secret: str = Header(default=""),
 ) -> dict[str, str]:
     """
@@ -94,6 +119,9 @@ async def webhook(
             sender_id,
             text,
         )
+
+        if text:
+            background_tasks.add_task(process_message, text, sender_name, update.timestamp)
     else:
         log.info("UPDATE type=%s | timestamp=%s", update.update_type, update.timestamp)
 

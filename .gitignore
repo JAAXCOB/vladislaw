@@ -35,5 +35,5 @@ htmlcov/
 *.log
 logs/
 
-# Docker
-.dockerignore
+# Data mounted into containers (Excel file lives here on the server)
+data/
