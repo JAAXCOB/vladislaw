@@ -124,6 +124,7 @@ def main() -> None:
 
     new_count = 0
     review_count = 0
+    skipped_count = 0
     max_ts_seen = state["last_timestamp_ms"]
 
     for msg in messages:
@@ -144,6 +145,13 @@ def main() -> None:
         print(f"--- {sender_name}: {text!r}")
         try:
             job = extract_job(text, sender_name)
+
+            if not job.is_job_report:
+                print("    -> не отчёт о работе, пропущено")
+                skipped_count += 1
+                processed_mids.add(mid)
+                continue
+
             sheet = append_job(settings.excel_file_path, job, ts, text)
             new_count += 1
             if job.needs_review:
@@ -161,7 +169,10 @@ def main() -> None:
     state["processed_mids"] = list(processed_mids)
     save_state(state)
 
-    print(f"\nГотово. Новых записей: {new_count}, из них требуют проверки: {review_count}.")
+    print(
+        f"\nГотово. Новых записей: {new_count} (из них требуют проверки: {review_count}), "
+        f"пропущено нерабочих сообщений: {skipped_count}."
+    )
 
 
 def chat_id_label(chat_id: str) -> str:

@@ -32,6 +32,11 @@ class ExtractedJob(BaseModel):
     Structured data extracted from a single employee message.
     Every field is Optional — null means "not mentioned in the message".
     """
+    is_job_report: bool = Field(
+        True,
+        description="True если сообщение — отчёт о работе (эвакуация/буксировка). "
+                     "False если это не по теме (приветствие, вопрос, шутка и т.п.)"
+    )
     vehicle_make: Optional[str] = Field(None, description="Марка автомобиля, напр. 'Geely', 'BMW'")
     vehicle_model: Optional[str] = Field(None, description="Модель, напр. '530', 'Rio'")
     license_plate: Optional[str] = Field(None, description="Госномер в верхнем регистре, напр. 'Н225РС797'")

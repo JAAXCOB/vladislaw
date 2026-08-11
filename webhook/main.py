@@ -53,6 +53,10 @@ def process_message(text: str, sender_name: str, timestamp_ms: int) -> None:
         log.exception("Extraction failed for message: %r", text)
         return
 
+    if not job.is_job_report:
+        log.info("Message is not a job report — skipping: %r", text)
+        return
+
     if not settings.excel_file_path:
         log.warning("EXCEL_FILE_PATH not set — skipping Excel write")
         return
