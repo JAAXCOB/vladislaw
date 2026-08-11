@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import openpyxl
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Font
 
 from webhook.schema import ExtractedJob
 
@@ -34,9 +34,6 @@ MONTH_NAMES = {
     11: "Ноябрь",
     12: "Декабрь",
 }
-
-# Yellow fill for rows that need human review
-REVIEW_FILL = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
 # Matches the existing sheet's cell style (Calibri 11, centered, mm-dd-yy dates)
 DEFAULT_FONT = Font(name="Calibri", size=11)
@@ -70,10 +67,11 @@ def append_job(
     original_text: str = "",
 ) -> str:
     """
-    Append one row to the appropriate monthly sheet.
+    Append one row to the appropriate monthly sheet, chosen automatically
+    from the message date (e.g. a message on Sep 1 goes to 'Сентябро 26'
+    even if the previous message was in 'Август 26').
 
     Returns the sheet name where the row was written.
-    Rows with needs_review=True are highlighted yellow.
     """
     path = Path(excel_path)
     if not path.exists():
@@ -103,8 +101,6 @@ def append_job(
         cell = ws.cell(row=last_row, column=col)
         cell.font = DEFAULT_FONT
         cell.alignment = CENTER_ALIGN
-        if job.needs_review:
-            cell.fill = REVIEW_FILL
 
     ws.cell(row=last_row, column=1).number_format = DATE_FORMAT
 
