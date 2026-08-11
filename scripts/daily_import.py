@@ -1,9 +1,18 @@
 """
 Daily batch import — no server needed.
 
-Fetches all messages from the MAX group chat since the last run
-(via GET /messages, which returns chat history — not just live events),
-runs AI extraction on each, and appends results to the Excel file.
+Every run fetches a fixed rolling window (default: the last 24 hours)
+from the MAX group chat via GET /messages, runs AI extraction, and
+appends results to the Excel file. The window does NOT extend from the
+previous run — each run only ever looks at "now minus N hours". Safe
+duplicate handling comes from tracking already-processed message IDs
+(data/import_state.json), not from the window itself, so a message
+seen in two overlapping windows is still only written once.
+
+If a scheduled run is ever missed (computer off, etc.), anything older
+than the window is simply not picked up — this is a deliberate
+trade-off for predictable, bounded daily runs rather than an
+ever-growing catch-up window.
 
 Run manually once a day, or schedule with cron/launchd/Task Scheduler.
 
@@ -38,7 +47,7 @@ PAGE_SIZE = 100  # MAX API max for GET /messages
 def load_state() -> dict:
     if STATE_PATH.exists():
         return json.loads(STATE_PATH.read_text())
-    return {"last_timestamp_ms": 0, "processed_mids": []}
+    return {"processed_mids": []}
 
 
 def save_state(state: dict) -> None:
@@ -97,7 +106,7 @@ def fetch_all_messages(client: httpx.Client, chat_id: str, oldest_ms: int, newes
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--hours", type=int, default=24, help="Look-back window on first run (default: 24)")
+    parser.add_argument("--hours", type=int, default=24, help="Rolling look-back window, every run (default: 24)")
     args = parser.parse_args()
 
     if not settings.max_chat_id:
@@ -107,13 +116,10 @@ def main() -> None:
 
     state = load_state()
     now_ms = int(time.time() * 1000)
-
-    from_ms = state["last_timestamp_ms"] + 1
-    if from_ms <= 1:
-        from_ms = now_ms - args.hours * 3600 * 1000
+    from_ms = now_ms - args.hours * 3600 * 1000
 
     print(f"Fetching messages from {chat_id_label(settings.max_chat_id)} "
-          f"between {from_ms} and {now_ms}...\n")
+          f"— last {args.hours}h ({from_ms} to {now_ms})...\n")
 
     processed_mids = set(state["processed_mids"])
 
@@ -129,7 +135,6 @@ def main() -> None:
     skipped_count = 0
     payroll_written = 0
     payroll_unmatched = 0
-    max_ts_seen = state["last_timestamp_ms"]
 
     for raw_msg in messages:
         message = Message.model_validate(raw_msg)
@@ -138,8 +143,6 @@ def main() -> None:
         ts = message.timestamp or 0
         sender_name = message.sender.first_name if message.sender else ""
         employee_name = message.effective_sender_name()  # forwarded original sender if applicable
-
-        max_ts_seen = max(max_ts_seen, ts)
 
         if not mid:
             continue
@@ -189,7 +192,6 @@ def main() -> None:
 
         processed_mids.add(mid)
 
-    state["last_timestamp_ms"] = max_ts_seen
     state["processed_mids"] = list(processed_mids)
     save_state(state)
 
