@@ -20,6 +20,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import sys
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
+from webhook.extractor import extract_job
+
 MAX_API_BASE = os.getenv("MAX_API_BASE", "https://platform-api2.max.ru")
 TOKEN = os.getenv("MAX_BOT_TOKEN", "")
 POLL_TIMEOUT = 20  # seconds — MAX holds the connection up to this long
@@ -68,6 +72,21 @@ def main() -> None:
                 print("=== UPDATE ===")
                 print(json.dumps(update, ensure_ascii=False, indent=2))
                 print()
+
+                if update.get("update_type") == "message_created":
+                    msg = update.get("message", {})
+                    text = msg.get("body", {}).get("text")
+                    sender = msg.get("sender", {})
+                    sender_name = sender.get("first_name", "")
+
+                    if text:
+                        print("=== AI EXTRACTION ===")
+                        try:
+                            job = extract_job(text, sender_name)
+                            print(json.dumps(job.model_dump(), ensure_ascii=False, indent=2))
+                        except Exception as exc:
+                            print(f"[extraction error] {exc}")
+                        print()
 
 
 if __name__ == "__main__":

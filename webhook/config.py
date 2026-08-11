@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     max_webhook_secret: str
     max_webhook_url: str = ""
     log_level: str = "INFO"
+    openai_api_key: str = ""
 
     MAX_API_BASE: str = "https://platform-api2.max.ru"
 
