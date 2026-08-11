@@ -9,8 +9,11 @@ class Settings(BaseSettings):
     max_webhook_url: str = ""
     log_level: str = "INFO"
     openai_api_key: str = ""
+    yandex_api_key: str = ""
+    yandex_folder_id: str = ""
 
     MAX_API_BASE: str = "https://platform-api2.max.ru"
+    YANDEX_LLM_URL: str = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
 
 
 settings = Settings()
