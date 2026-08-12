@@ -38,6 +38,12 @@ class ExtractedJob(BaseModel):
                      "(в любой формулировке, даже разговорной). False для всего остального: "
                      "не по теме, заявка ещё не закрыта, неясно."
     )
+    is_new_job_request: bool = Field(
+        False,
+        description="True если сообщение — новая заявка на эвакуацию, которую нужно принять "
+                     "в работу (обычно 'Примите заявку', 'Новая заявка' с адресом/машиной/номером). "
+                     "Взаимоисключающе с is_closed_job_report — сообщение не может быть и тем и другим."
+    )
     vehicle_make: Optional[str] = Field(None, description="Марка автомобиля, напр. 'Geely', 'BMW'")
     vehicle_model: Optional[str] = Field(None, description="Модель, напр. '530', 'Rio'")
     license_plate: Optional[str] = Field(None, description="Госномер в верхнем регистре, напр. 'Н225РС797'")

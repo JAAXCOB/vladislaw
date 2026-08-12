@@ -1,5 +1,5 @@
 """
-Daily batch import — no server needed.
+Periodic batch import — no server needed.
 
 Every run fetches a fixed rolling window (default: the last 24 hours)
 from the MAX group chat via GET /messages, runs AI extraction, and
@@ -11,10 +11,17 @@ seen in two overlapping windows is still only written once.
 
 If a scheduled run is ever missed (computer off, etc.), anything older
 than the window is simply not picked up — this is a deliberate
-trade-off for predictable, bounded daily runs rather than an
-ever-growing catch-up window.
+trade-off for predictable, bounded runs rather than an ever-growing
+catch-up window.
 
-Run manually once a day, or schedule with cron/launchd/Task Scheduler.
+When ENABLE_JOB_REMINDERS=true, this also tracks "new job request"
+messages (license plate) until a matching "closed job" message shows
+up for the same plate. Anything still open after at least one full
+run has passed since it was first seen gets a reminder posted back
+into the chat — every run, until it's closed. A job first seen in
+THIS run is never reminded in this same run (one cycle of grace).
+
+Run on a schedule with cron/launchd/Task Scheduler (e.g. 3x/day).
 
 Usage:
     python scripts/daily_import.py
@@ -43,7 +50,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from webhook.config import settings
 from webhook.excel_writer import append_job
 from webhook.extractor import extract_job
+from webhook.max_client import send_message
 from webhook.models import Message
+from webhook.open_jobs_tracker import OpenJobsTracker
 from webhook.payroll_writer import append_salary_row
 
 STATE_PATH = Path(__file__).parent.parent / "data" / "import_state.json"
@@ -133,6 +142,11 @@ def main() -> None:
 
     processed_mids = set(state["processed_mids"])
 
+    tracker: OpenJobsTracker | None = None
+    if settings.enable_job_reminders:
+        tracker = OpenJobsTracker(settings.max_chat_id)
+        tracker.start_run()
+
     # verify=False: platform-api2.max.ru uses a Russian government CA (Минцифры)
     # not included in standard CA bundles.
     with httpx.Client(timeout=30, verify=False) as client:
@@ -143,6 +157,7 @@ def main() -> None:
     new_count = 0
     review_count = 0
     skipped_count = 0
+    new_job_count = 0
     payroll_written = 0
     payroll_unmatched = 0
 
@@ -168,11 +183,24 @@ def main() -> None:
         try:
             job = extract_job(text, sender_name)
 
+            if job.is_new_job_request:
+                if tracker and job.license_plate:
+                    tracker.register_new_job(job.license_plate, text)
+                    print(f"    -> новая заявка, отслеживаем номер {job.license_plate}")
+                else:
+                    print("    -> новая заявка (номер не найден или напоминания выключены)")
+                new_job_count += 1
+                processed_mids.add(mid)
+                continue
+
             if not job.is_closed_job_report:
                 print("    -> заявка не закрыта / не по теме, пропущено")
                 skipped_count += 1
                 processed_mids.add(mid)
                 continue
+
+            if tracker and job.license_plate:
+                tracker.mark_closed(job.license_plate)
 
             sheet = append_job(settings.excel_file_path, job, ts, text)
             new_count += 1
@@ -205,12 +233,35 @@ def main() -> None:
     state["processed_mids"] = list(processed_mids)
     save_state(state)
 
+    reminders_sent = 0
+    if tracker:
+        due = tracker.jobs_due_for_reminder()
+        if due:
+            print(f"\n--- Напоминания о незакрытых заявках ({len(due)}) ---")
+        for open_job in due:
+            plate = open_job["plate"]
+            excerpt = open_job.get("excerpt", "")[:100]
+            reminder_text = (
+                f"⚠️ Заявка {plate} всё ещё не закрыта. Не забудьте отчитаться о выполнении!\n"
+                f"{excerpt}"
+            )
+            try:
+                send_message(settings.max_chat_id, reminder_text, settings.max_bot_token, settings.MAX_API_BASE)
+                reminders_sent += 1
+                print(f"    -> напоминание отправлено: {plate}")
+            except Exception as exc:
+                print(f"    -> ОШИБКА отправки напоминания для {plate}: {exc}")
+        tracker.save()
+
     summary = (
         f"\nГотово. Новых записей: {new_count} (из них требуют проверки: {review_count}), "
+        f"новых заявок в работу: {new_job_count}, "
         f"пропущено нерабочих сообщений: {skipped_count}."
     )
     if settings.payroll_file_path:
         summary += f" Зарплата: записано {payroll_written}, не распознан сотрудник у {payroll_unmatched}."
+    if settings.enable_job_reminders:
+        summary += f" Напоминаний отправлено: {reminders_sent}."
     print(summary)
 
 

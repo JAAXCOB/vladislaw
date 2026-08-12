@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     excel_file_path: str = ""
     payroll_file_path: str = ""
     max_chat_id: str = ""
+    enable_job_reminders: bool = False
 
     MAX_API_BASE: str = "https://platform-api2.max.ru"
     YANDEX_LLM_URL: str = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
