@@ -20,10 +20,10 @@ from pathlib import Path
 from typing import Optional
 
 import openpyxl
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
 
-from webhook.excel_writer import _format_services
+from webhook.excel_writer import _first_empty_row, _format_services
 from webhook.schema import ExtractedJob
 
 log = logging.getLogger("max_webhook.payroll")
@@ -42,6 +42,9 @@ FIXED_COLUMNS = {"Дата", "VIN/Гос.номер ТС", "Услуга"}
 DEFAULT_FONT = Font(name="Calibri", size=11)
 CENTER_ALIGN = Alignment(horizontal="center")
 DATE_FORMAT = "mm-dd-yy"
+
+# Light fill for rows where the employee couldn't be confidently matched
+REVIEW_FILL = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
 
 
 class AmbiguousEmployeeError(Exception):
@@ -141,21 +144,25 @@ def append_salary_row(
     if matched_col is not None:
         row_values[matched_col - 1] = amount
 
-    ws.append(row_values)
-    last_row = ws.max_row
+    target_row = _first_empty_row(ws)
+    for col_idx, value in enumerate(row_values, 1):
+        ws.cell(row=target_row, column=col_idx).value = value
+
+    matched = matched_col is not None
 
     for col in range(1, ws.max_column + 1):
-        cell = ws.cell(row=last_row, column=col)
+        cell = ws.cell(row=target_row, column=col)
         cell.font = DEFAULT_FONT
         cell.alignment = CENTER_ALIGN
-    ws.cell(row=last_row, column=1).number_format = DATE_FORMAT
+        if not matched:
+            cell.fill = REVIEW_FILL
+    ws.cell(row=target_row, column=1).number_format = DATE_FORMAT
 
     wb.save(path)
 
-    matched = matched_col is not None
     log.info(
         "PAYROLL | sheet='%s' | row=%d | plate=%s | employee=%s | amount=%s | matched=%s",
-        sheet_name, last_row, plate, employee_name, amount, matched,
+        sheet_name, target_row, plate, employee_name, amount, matched,
     )
 
     return sheet_name, matched

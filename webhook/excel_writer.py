@@ -11,7 +11,8 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import openpyxl
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.worksheet.worksheet import Worksheet
 
 from webhook.schema import ExtractedJob
 
@@ -39,6 +40,26 @@ MONTH_NAMES = {
 DEFAULT_FONT = Font(name="Calibri", size=11)
 CENTER_ALIGN = Alignment(horizontal="center")
 DATE_FORMAT = "mm-dd-yy"
+
+# Light fill for rows that need human re-checking (needs_review=True)
+REVIEW_FILL = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+
+
+def _first_empty_row(ws: Worksheet, key_column: int = 1) -> int:
+    """
+    Returns the first row (below the header) whose key_column cell is empty.
+
+    ws.max_row / ws.append() can't be trusted here: openpyxl counts a row
+    as "used" if it ever had a value or style applied, even after the
+    value was manually cleared in Excel. That leaves stale formatting
+    far below the real data and makes append() start writing hundreds of
+    rows past the actual empty area. Scanning for a genuinely empty cell
+    finds the real gap instead.
+    """
+    row = 2
+    while ws.cell(row=row, column=key_column).value is not None:
+        row += 1
+    return row
 
 
 def _sheet_name(dt: datetime) -> str:
@@ -92,24 +113,27 @@ def append_job(
     service_text = _format_services(job) or original_text[:60]
     amount = job.total_amount_rub
 
+    target_row = _first_empty_row(ws)
     row = [dt.date(), plate, service_text, amount]
-    ws.append(row)
+    for col_idx, value in enumerate(row, 1):
+        ws.cell(row=target_row, column=col_idx).value = value
 
     # Apply the same style as existing rows: Calibri 11, centered, mm-dd-yy dates
-    last_row = ws.max_row
     for col in range(1, 5):
-        cell = ws.cell(row=last_row, column=col)
+        cell = ws.cell(row=target_row, column=col)
         cell.font = DEFAULT_FONT
         cell.alignment = CENTER_ALIGN
+        if job.needs_review:
+            cell.fill = REVIEW_FILL
 
-    ws.cell(row=last_row, column=1).number_format = DATE_FORMAT
+    ws.cell(row=target_row, column=1).number_format = DATE_FORMAT
 
     wb.save(path)
 
     log.info(
         "EXCEL | sheet='%s' | row=%d | plate=%s | amount=%s | review=%s",
         sheet_name,
-        last_row,
+        target_row,
         plate,
         amount,
         job.needs_review,
