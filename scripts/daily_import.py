@@ -108,6 +108,9 @@ def fetch_all_messages(client: httpx.Client, chat_id: str, oldest_ms: int, newes
         if window_end <= oldest_ms:
             break
 
+    # MAX returns newest-first; process oldest-to-newest so Excel rows land
+    # in chronological order like the rest of the sheet.
+    all_messages.sort(key=lambda m: m.get("timestamp", 0))
     return all_messages
 
 
