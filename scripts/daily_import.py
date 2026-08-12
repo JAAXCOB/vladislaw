@@ -30,6 +30,7 @@ Usage:
 import argparse
 import json
 import sys
+import textwrap
 import time
 from pathlib import Path
 
@@ -240,7 +241,10 @@ def main() -> None:
             print(f"\n--- Напоминания о незакрытых заявках ({len(due)}) ---")
         for open_job in due:
             plate = open_job["plate"]
-            excerpt = open_job.get("excerpt", "")[:100]
+            # Collapse the raw multi-line message into one line and cut at a
+            # word boundary (not mid-word) for a clean, compact reminder.
+            raw_excerpt = " ".join(open_job.get("excerpt", "").split())
+            excerpt = textwrap.shorten(raw_excerpt, width=100, placeholder="...")
             reminder_text = (
                 f"⚠️ Заявка {plate} всё ещё не закрыта. Не забудьте отчитаться о выполнении!\n"
                 f"{excerpt}"
