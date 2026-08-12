@@ -29,6 +29,13 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+# Windows redirects stdout to a non-UTF-8 code page (e.g. cp1251) when it's
+# not a real console (as happens under Task Scheduler with `>> log.txt`),
+# which crashes on emoji/unusual characters in chat messages. Force UTF-8
+# so nothing in the log can bring the whole run down mid-batch.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent.parent))

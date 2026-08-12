@@ -24,6 +24,12 @@ from webhook.payroll_writer import append_salary_row
 # Logging
 # ---------------------------------------------------------------------------
 
+# Guard against non-UTF-8 stdout (e.g. Windows cp1251 when redirected to a
+# file) crashing the process on emoji/unusual characters in chat messages.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
