@@ -186,7 +186,7 @@ def main() -> None:
 
             if job.is_new_job_request:
                 if tracker and job.license_plate:
-                    tracker.register_new_job(job.license_plate, text)
+                    tracker.register_new_job(job.license_plate, mid, text)
                     print(f"    -> новая заявка, отслеживаем номер {job.license_plate}")
                 else:
                     print("    -> новая заявка (номер не найден или напоминания выключены)")
@@ -250,7 +250,10 @@ def main() -> None:
                 f"{excerpt}"
             )
             try:
-                send_message(settings.max_chat_id, reminder_text, settings.max_bot_token, settings.MAX_API_BASE)
+                send_message(
+                    settings.max_chat_id, reminder_text, settings.max_bot_token, settings.MAX_API_BASE,
+                    reply_to_mid=open_job.get("mid") or None,
+                )
                 reminders_sent += 1
                 print(f"    -> напоминание отправлено: {plate}")
             except Exception as exc:

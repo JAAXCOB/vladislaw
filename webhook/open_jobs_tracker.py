@@ -43,11 +43,11 @@ class OpenJobsTracker:
     """
     Usage per run:
         tracker = OpenJobsTracker(chat_id)
-        tracker.start_run()                       # call once at the start
-        tracker.register_new_job(plate, excerpt)   # for each new_job_request message
-        tracker.mark_closed(plate)                 # for each closed_job_report message
-        due = tracker.jobs_due_for_reminder()      # after processing all messages
-        tracker.save()                             # persist at the end
+        tracker.start_run()                             # call once at the start
+        tracker.register_new_job(plate, mid, excerpt)   # for each new_job_request message
+        tracker.mark_closed(plate)                       # for each closed_job_report message
+        due = tracker.jobs_due_for_reminder()            # after processing all messages
+        tracker.save()                                   # persist at the end
     """
 
     def __init__(self, chat_id: str):
@@ -60,13 +60,14 @@ class OpenJobsTracker:
         self._chat["run_counter"] += 1
         self.current_run = self._chat["run_counter"]
 
-    def register_new_job(self, plate: str, excerpt: str = "") -> None:
+    def register_new_job(self, plate: str, mid: str = "", excerpt: str = "") -> None:
         key = normalize_plate(plate)
         if not key:
             return
         if key not in self._chat["open_jobs"]:
             self._chat["open_jobs"][key] = {
                 "plate": plate,
+                "mid": mid,
                 "first_seen_run": self.current_run,
                 "excerpt": excerpt[:200],
             }
