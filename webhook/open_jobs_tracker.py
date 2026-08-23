@@ -76,6 +76,10 @@ class OpenJobsTracker:
         key = normalize_plate(plate)
         self._chat["open_jobs"].pop(key, None)
 
+    def list_open_jobs(self) -> list[dict]:
+        """All currently tracked jobs, regardless of grace period."""
+        return list(self._chat["open_jobs"].values())
+
     def jobs_due_for_reminder(self) -> list[dict]:
         """
         Jobs first seen in an EARLIER run than this one — i.e. they've
