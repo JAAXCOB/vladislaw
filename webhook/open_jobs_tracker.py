@@ -25,7 +25,10 @@ def normalize_plate(plate: str) -> str:
 
 def _load_all() -> dict:
     if STATE_PATH.exists():
-        return json.loads(STATE_PATH.read_text())
+        try:
+            return json.loads(STATE_PATH.read_text())
+        except (json.JSONDecodeError, ValueError):
+            return {"chats": {}}
     return {"chats": {}}
 
 
