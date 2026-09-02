@@ -31,7 +31,8 @@ log = logging.getLogger("max_webhook.payroll")
 
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
-# Payroll sheets are named just by month, no year suffix (e.g. "Август", not "Август 26")
+# Each month has one shared payroll sheet. Employees are columns inside that
+# sheet — never separate worksheets.
 MONTH_NAMES = {
     1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
     5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
@@ -58,37 +59,46 @@ def _sheet_name(dt: datetime) -> str:
 
 def _get_or_create_sheet(wb: openpyxl.Workbook, sheet_name: str, path: Path) -> Worksheet:
     """
-    Return the requested sheet, creating it if it doesn't exist yet.
-    The header row (employee columns) is copied from the most recent
-    existing month sheet so the new sheet is immediately usable.
+    Return one shared sheet for the requested month. If September does not
+    exist yet, create exactly one "Сентябрь" sheet using August as its
+    structure: same employee columns, header styles and column widths.
     """
     if sheet_name in wb.sheetnames:
         return wb[sheet_name]
 
-    # Find the most recent existing month sheet to use as a header template
-    template_ws = None
-    for name in reversed(list(MONTH_NAMES.values())):
-        if name in wb.sheetnames:
-            template_ws = wb[name]
-            break
+    month_number = next(number for number, name in MONTH_NAMES.items() if name == sheet_name)
+    if month_number == 1:
+        raise ValueError(f"Cannot create January payroll sheet automatically in {path.name}")
 
+    previous_month_name = MONTH_NAMES[month_number - 1]
+    if previous_month_name not in wb.sheetnames:
+        raise ValueError(
+            f"Previous payroll sheet '{previous_month_name}' not found in {path.name}"
+        )
+
+    template_ws = wb[previous_month_name]
     ws = wb.create_sheet(sheet_name)
 
-    if template_ws is not None:
-        for col_idx in range(1, template_ws.max_column + 1):
-            src = template_ws.cell(row=1, column=col_idx)
-            dst = ws.cell(row=1, column=col_idx)
-            dst.value = src.value
-            if src.has_style:
-                dst.font = copy(src.font)
-                dst.alignment = copy(src.alignment)
-                dst.fill = copy(src.fill)
-                dst.border = copy(src.border)
-                dst.number_format = src.number_format
-        for col_letter, col_dim in template_ws.column_dimensions.items():
-            ws.column_dimensions[col_letter].width = col_dim.width
+    for col_idx in range(1, template_ws.max_column + 1):
+        src = template_ws.cell(row=1, column=col_idx)
+        dst = ws.cell(row=1, column=col_idx)
+        dst.value = src.value
+        if src.has_style:
+            dst.font = copy(src.font)
+            dst.alignment = copy(src.alignment)
+            dst.fill = copy(src.fill)
+            dst.border = copy(src.border)
+            dst.number_format = src.number_format
 
-    log.info("Created new payroll sheet '%s' in %s", sheet_name, path.name)
+    for col_letter, col_dim in template_ws.column_dimensions.items():
+        ws.column_dimensions[col_letter].width = col_dim.width
+
+    log.info(
+        "Created shared payroll sheet '%s' from '%s' in %s",
+        sheet_name,
+        previous_month_name,
+        path.name,
+    )
     return ws
 
 
@@ -145,9 +155,10 @@ def append_salary_row(
     original_text: str = "",
 ) -> tuple[str, bool]:
     """
-    Appends one row to the correct monthly payroll sheet: Дата/VIN/Услуга
+    Appends one row to the shared monthly payroll sheet: Дата/VIN/Услуга
     are always filled, the amount is placed under the matched employee's
-    column only if the match is unambiguous.
+    column only if the match is unambiguous. All employees stay on the same
+    worksheet as separate columns.
 
     Returns (sheet_name, matched) — matched=False means the row was
     written but no employee column could be confidently identified, so
