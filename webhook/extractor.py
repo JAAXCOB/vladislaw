@@ -95,7 +95,21 @@ def _parse_json_from_response(text: str) -> dict:
     match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if match:
         text = match.group(1).strip()
-    return json.loads(text)
+    data = json.loads(text)
+
+    # YandexGPT occasionally wraps the single result object in a JSON list:
+    # [{...}] instead of {...}. Treat that harmless format variation as the
+    # same result instead of rejecting the whole message.
+    if isinstance(data, list):
+        if len(data) == 1 and isinstance(data[0], dict):
+            data = data[0]
+        else:
+            raise ValueError("YandexGPT returned an unexpected JSON list")
+
+    if not isinstance(data, dict):
+        raise ValueError("YandexGPT response must be a JSON object")
+
+    return data
 
 
 def extract_job(message_text: str, sender_name: str = "") -> ExtractedJob:
