@@ -127,7 +127,10 @@ def fetch_all_messages(client: httpx.Client, chat_id: str, oldest_ms: int, newes
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hours", type=int, default=24, help="Rolling look-back window, every run (default: 24)")
+    parser.add_argument("--payroll-only", action="store_true",
+                        help="Only write payroll rows — skip main Excel, skip reminders, no messages sent to chat")
     args = parser.parse_args()
+    payroll_only = args.payroll_only
 
     if not settings.max_chat_id:
         sys.exit("ERROR: MAX_CHAT_ID is not set in .env")
@@ -144,7 +147,7 @@ def main() -> None:
     processed_mids = set(state["processed_mids"])
 
     tracker: OpenJobsTracker | None = None
-    if settings.enable_job_reminders:
+    if settings.enable_job_reminders and not payroll_only:
         tracker = OpenJobsTracker(settings.max_chat_id)
         tracker.start_run()
 
@@ -185,11 +188,14 @@ def main() -> None:
             job = extract_job(text, sender_name)
 
             if job.is_new_job_request:
-                if tracker and job.license_plate:
-                    tracker.register_new_job(job.license_plate, mid, text)
-                    print(f"    -> новая заявка, отслеживаем номер {job.license_plate}")
+                if not payroll_only:
+                    if tracker and job.license_plate:
+                        tracker.register_new_job(job.license_plate, mid, text)
+                        print(f"    -> новая заявка, отслеживаем номер {job.license_plate}")
+                    else:
+                        print("    -> новая заявка (номер не найден или напоминания выключены)")
                 else:
-                    print("    -> новая заявка (номер не найден или напоминания выключены)")
+                    print("    -> новая заявка, пропущено (payroll-only режим)")
                 new_job_count += 1
                 processed_mids.add(mid)
                 continue
@@ -203,13 +209,14 @@ def main() -> None:
             if tracker and job.license_plate:
                 tracker.mark_closed(job.license_plate)
 
-            sheet = append_job(settings.excel_file_path, job, ts, text)
-            new_count += 1
-            if job.needs_review:
-                review_count += 1
-                print(f"    -> записано в '{sheet}', ТРЕБУЕТ ПРОВЕРКИ: {job.review_reason}")
-            else:
-                print(f"    -> записано в '{sheet}'")
+            if not payroll_only:
+                sheet = append_job(settings.excel_file_path, job, ts, text)
+                new_count += 1
+                if job.needs_review:
+                    review_count += 1
+                    print(f"    -> записано в '{sheet}', ТРЕБУЕТ ПРОВЕРКИ: {job.review_reason}")
+                else:
+                    print(f"    -> записано в '{sheet}'")
 
             if settings.payroll_file_path:
                 try:
@@ -235,7 +242,7 @@ def main() -> None:
     save_state(state)
 
     reminders_sent = 0
-    if tracker:
+    if tracker and not payroll_only:
         due = tracker.jobs_due_for_reminder()
         if due:
             print(f"\n--- Напоминания о незакрытых заявках ({len(due)}) ---")
