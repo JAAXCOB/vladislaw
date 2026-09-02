@@ -69,18 +69,27 @@ def process_message(text: str, sender_name: str, employee_name: str, timestamp_m
         return
 
     try:
-        sheet = append_job(settings.excel_file_path, job, timestamp_ms, text)
-        log.info("Written to sheet '%s' (needs_review=%s)", sheet, job.needs_review)
+        sheet, inserted = append_job(settings.excel_file_path, job, timestamp_ms, text)
+        if inserted:
+            log.info("Written to sheet '%s' (needs_review=%s)", sheet, job.needs_review)
+        else:
+            log.info("Duplicate already exists in sheet '%s' — skipped", sheet)
     except Exception:
         log.exception("Failed to write to Excel for message: %r", text)
         return
 
     if settings.payroll_file_path:
         try:
-            payroll_sheet, matched = append_salary_row(
+            payroll_sheet, matched, inserted = append_salary_row(
                 settings.payroll_file_path, job, timestamp_ms, employee_name, text
             )
-            log.info("Payroll sheet '%s' (employee=%s, matched=%s)", payroll_sheet, employee_name, matched)
+            log.info(
+                "Payroll sheet '%s' (employee=%s, matched=%s, inserted=%s)",
+                payroll_sheet,
+                employee_name,
+                matched,
+                inserted,
+            )
         except Exception:
             log.exception("Failed to write to payroll file for message: %r", text)
 
