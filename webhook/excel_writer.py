@@ -7,6 +7,7 @@ Finds the correct monthly sheet by message date, appends one row:
 from __future__ import annotations
 
 import logging
+from copy import copy
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -69,6 +70,41 @@ def _sheet_name(dt: datetime) -> str:
     return f"{month} {year}"
 
 
+def _get_or_create_sheet(wb: openpyxl.Workbook, sheet_name: str, path: Path) -> Worksheet:
+    """
+    Return the requested sheet, creating it with headers if it doesn't exist.
+    Copies the header row from the most recent existing month sheet.
+    """
+    if sheet_name in wb.sheetnames:
+        return wb[sheet_name]
+
+    template_ws = None
+    for name in reversed([f"{m} {str(y)[2:]}" for y in range(2024, 2030) for m in MONTH_NAMES.values()]):
+        if name in wb.sheetnames:
+            template_ws = wb[name]
+            break
+
+    ws = wb.create_sheet(sheet_name)
+
+    if template_ws is not None:
+        for col_idx in range(1, template_ws.max_column + 1):
+            src = template_ws.cell(row=1, column=col_idx)
+            dst = ws.cell(row=1, column=col_idx)
+            dst.value = src.value
+            if src.has_style:
+                dst.font = copy(src.font)
+                dst.alignment = copy(src.alignment)
+                dst.fill = copy(src.fill)
+                dst.border = copy(src.border)
+                dst.number_format = src.number_format
+    else:
+        for col_idx, header in enumerate(["Дата", "VIN/Гос.номер ТС", "Услуга", "Сумма"], 1):
+            ws.cell(row=1, column=col_idx).value = header
+
+    log.info("Created new sheet '%s' in %s", sheet_name, path.name)
+    return ws
+
+
 def _format_services(job: ExtractedJob) -> str:
     """
     Format services list to match the existing sheet style, e.g.
@@ -102,12 +138,7 @@ def append_job(
     sheet_name = _sheet_name(dt)
 
     wb = openpyxl.load_workbook(path)
-
-    if sheet_name not in wb.sheetnames:
-        log.warning("Sheet '%s' not found in %s — available: %s", sheet_name, path.name, wb.sheetnames)
-        raise ValueError(f"Sheet '{sheet_name}' not found in Excel file")
-
-    ws = wb[sheet_name]
+    ws = _get_or_create_sheet(wb, sheet_name, path)
 
     plate = job.license_plate or f"[НЕТ НОМЕРА] {original_text[:30]}"
     service_text = _format_services(job) or original_text[:60]
