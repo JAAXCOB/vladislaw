@@ -32,6 +32,7 @@ import json
 import sys
 import textwrap
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -59,6 +60,7 @@ from webhook.payroll_writer import append_salary_row
 STATE_PATH = Path(__file__).parent.parent / "data" / "import_state.json"
 MAX_PROCESSED_MIDS = 2000  # rolling window to guard against boundary duplicates
 PAGE_SIZE = 100  # MAX API max for GET /messages
+MOSCOW_TZ = timezone(timedelta(hours=3))
 
 
 def load_state() -> dict:
@@ -127,10 +129,17 @@ def fetch_all_messages(client: httpx.Client, chat_id: str, oldest_ms: int, newes
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hours", type=int, default=24, help="Rolling look-back window, every run (default: 24)")
+    parser.add_argument("--since", type=str,
+                        help="Process messages starting from this Moscow date, e.g. 2026-09-01")
     parser.add_argument("--payroll-only", action="store_true",
                         help="Only write payroll rows — skip main Excel, skip reminders, no messages sent to chat")
+    parser.add_argument("--rebuild-open-jobs", action="store_true",
+                        help="Clear and rebuild open jobs from the selected message window")
     args = parser.parse_args()
     payroll_only = args.payroll_only
+
+    if payroll_only and args.rebuild_open_jobs:
+        parser.error("--payroll-only and --rebuild-open-jobs cannot be used together")
 
     if not settings.max_chat_id:
         sys.exit("ERROR: MAX_CHAT_ID is not set in .env")
@@ -139,17 +148,31 @@ def main() -> None:
 
     state = load_state()
     now_ms = int(time.time() * 1000)
-    from_ms = now_ms - args.hours * 3600 * 1000
+    if args.since:
+        try:
+            since_dt = datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=MOSCOW_TZ)
+        except ValueError:
+            parser.error("--since must use YYYY-MM-DD format, for example 2026-09-01")
+        from_ms = int(since_dt.timestamp() * 1000)
+        if from_ms > now_ms:
+            parser.error("--since cannot be in the future")
+        window_label = f"from {args.since} 00:00 Moscow time"
+    else:
+        from_ms = now_ms - args.hours * 3600 * 1000
+        window_label = f"last {args.hours}h"
 
     print(f"Fetching messages from {chat_id_label(settings.max_chat_id)} "
-          f"— last {args.hours}h ({from_ms} to {now_ms})...\n")
+          f"— {window_label} ({from_ms} to {now_ms})...\n")
 
     processed_mids = set(state["processed_mids"])
 
     tracker: OpenJobsTracker | None = None
-    if settings.enable_job_reminders and not payroll_only:
+    if (settings.enable_job_reminders or args.rebuild_open_jobs) and not payroll_only:
         tracker = OpenJobsTracker(settings.max_chat_id)
         tracker.start_run()
+        if args.rebuild_open_jobs:
+            tracker.clear_all()
+            print("Open-job list cleared; rebuilding it from the selected messages.\n")
 
     # verify=False: platform-api2.max.ru uses a Russian government CA (Минцифры)
     # not included in standard CA bundles.
@@ -175,12 +198,13 @@ def main() -> None:
 
         if not mid:
             continue
-        if not payroll_only and mid in processed_mids:
+        if not payroll_only and not args.rebuild_open_jobs and mid in processed_mids:
             continue
         if not text:
             print(f"--- {sender_name}: (нет текста — фото/видео без подписи), пропущено")
             skipped_count += 1
-            processed_mids.add(mid)
+            if not payroll_only:
+                processed_mids.add(mid)
             continue
 
         print(f"--- {sender_name}: {text!r}")
@@ -197,33 +221,40 @@ def main() -> None:
                 else:
                     print("    -> новая заявка, пропущено (payroll-only режим)")
                 new_job_count += 1
-                processed_mids.add(mid)
+                if not payroll_only:
+                    processed_mids.add(mid)
                 continue
 
             if not job.is_closed_job_report:
                 print("    -> заявка не закрыта / не по теме, пропущено")
                 skipped_count += 1
-                processed_mids.add(mid)
+                if not payroll_only:
+                    processed_mids.add(mid)
                 continue
 
             if tracker and job.license_plate:
                 tracker.mark_closed(job.license_plate)
 
             if not payroll_only:
-                sheet = append_job(settings.excel_file_path, job, ts, text)
-                new_count += 1
-                if job.needs_review:
-                    review_count += 1
-                    print(f"    -> записано в '{sheet}', ТРЕБУЕТ ПРОВЕРКИ: {job.review_reason}")
+                sheet, inserted = append_job(settings.excel_file_path, job, ts, text)
+                if inserted:
+                    new_count += 1
+                    if job.needs_review:
+                        review_count += 1
+                        print(f"    -> записано в '{sheet}', ТРЕБУЕТ ПРОВЕРКИ: {job.review_reason}")
+                    else:
+                        print(f"    -> записано в '{sheet}'")
                 else:
-                    print(f"    -> записано в '{sheet}'")
+                    print(f"    -> журнал: такая строка уже есть в '{sheet}', дубль пропущен")
 
             if settings.payroll_file_path:
                 try:
-                    payroll_sheet, matched = append_salary_row(
+                    payroll_sheet, matched, inserted = append_salary_row(
                         settings.payroll_file_path, job, ts, employee_name, text
                     )
-                    if matched:
+                    if not inserted:
+                        print(f"    -> зарплата: такая строка уже есть в '{payroll_sheet}', дубль пропущен")
+                    elif matched:
                         payroll_written += 1
                         print(f"    -> зарплата: '{payroll_sheet}', сотрудник={employee_name}")
                     else:
@@ -236,7 +267,8 @@ def main() -> None:
             print(f"    -> ОШИБКА: {exc}")
             continue
 
-        processed_mids.add(mid)
+        if not payroll_only:
+            processed_mids.add(mid)
 
     state["processed_mids"] = list(processed_mids)
     save_state(state)
