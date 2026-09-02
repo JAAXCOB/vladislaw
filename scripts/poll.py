@@ -89,9 +89,10 @@ def main() -> None:
                             excel_path = os.getenv("EXCEL_FILE_PATH", "")
                             if excel_path:
                                 timestamp_ms = update.get("timestamp", 0)
-                                sheet = append_job(excel_path, job, timestamp_ms, text)
+                                sheet, inserted = append_job(excel_path, job, timestamp_ms, text)
                                 review_mark = " ⚠️  ТРЕБУЕТ ПРОВЕРКИ" if job.needs_review else ""
-                                print(f"=== EXCEL: записано в лист '{sheet}'{review_mark} ===")
+                                action = "записано в" if inserted else "дубль уже есть в"
+                                print(f"=== EXCEL: {action} лист '{sheet}'{review_mark} ===")
                             else:
                                 print("[excel] EXCEL_FILE_PATH не задан — запись пропущена")
                         except Exception as exc:
