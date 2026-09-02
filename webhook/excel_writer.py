@@ -20,7 +20,7 @@ log = logging.getLogger("max_webhook.excel")
 
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
-# Matches sheet names in the real file (note: "Сентябро" is a typo in the original)
+# Matches sheet names in the real file.
 MONTH_NAMES = {
     1: "Январь",
     2: "Февраль",
@@ -30,7 +30,7 @@ MONTH_NAMES = {
     6: "Июнь",
     7: "Июль",
     8: "Август",
-    9: "Сентябро",
+    9: "Сентябрь",
     10: "Октябрь",
     11: "Ноябрь",
     12: "Декабрь",
@@ -114,7 +114,7 @@ def append_job(
 ) -> tuple[str, bool]:
     """
     Append one row to the appropriate monthly sheet, chosen automatically
-    from the message date (e.g. a message on Sep 1 goes to 'Сентябро 26'
+    from the message date (e.g. a message on Sep 1 goes to 'Сентябрь 26'
     even if the previous message was in 'Август 26').
 
     Returns (sheet_name, inserted). inserted=False means the same row was
