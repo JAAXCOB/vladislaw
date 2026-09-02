@@ -65,7 +65,7 @@ MOSCOW_TZ = timezone(timedelta(hours=3))
 
 def load_state() -> dict:
     if STATE_PATH.exists():
-        return json.loads(STATE_PATH.read_text())
+        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
     return {"processed_mids": []}
 
 
@@ -73,7 +73,10 @@ def save_state(state: dict) -> None:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     # Keep only the most recent mids to avoid unbounded growth
     state["processed_mids"] = state["processed_mids"][-MAX_PROCESSED_MIDS:]
-    STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+    STATE_PATH.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def fetch_all_messages(client: httpx.Client, chat_id: str, oldest_ms: int, newest_ms: int) -> list[dict]:
