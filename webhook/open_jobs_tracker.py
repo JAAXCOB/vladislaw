@@ -83,6 +83,10 @@ class OpenJobsTracker:
         """All currently tracked jobs, regardless of grace period."""
         return list(self._chat["open_jobs"].values())
 
+    def clear_all(self) -> None:
+        """Remove all tracked jobs for this chat before a full rebuild."""
+        self._chat["open_jobs"] = {}
+
     def jobs_due_for_reminder(self) -> list[dict]:
         """
         Jobs first seen in an EARLIER run than this one — i.e. they've
