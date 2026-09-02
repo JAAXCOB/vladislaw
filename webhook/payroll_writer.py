@@ -63,20 +63,35 @@ def _get_or_create_sheet(wb: openpyxl.Workbook, sheet_name: str, path: Path) -> 
     exist yet, create exactly one "Сентябрь" sheet using August as its
     structure: same employee columns, header styles and column widths.
     """
-    if sheet_name in wb.sheetnames:
-        return wb[sheet_name]
+    # Excel treats sheet names as case-insensitive. Match that behaviour so
+    # an existing "сентябрь" sheet is reused instead of creating
+    # "Сентябрь1", "Сентябрь2", etc. on repeated runs.
+    existing_name = next(
+        (name for name in wb.sheetnames if name.casefold() == sheet_name.casefold()),
+        None,
+    )
+    if existing_name is not None:
+        return wb[existing_name]
 
     month_number = next(number for number, name in MONTH_NAMES.items() if name == sheet_name)
     if month_number == 1:
         raise ValueError(f"Cannot create January payroll sheet automatically in {path.name}")
 
     previous_month_name = MONTH_NAMES[month_number - 1]
-    if previous_month_name not in wb.sheetnames:
+    previous_existing_name = next(
+        (
+            name
+            for name in wb.sheetnames
+            if name.casefold() == previous_month_name.casefold()
+        ),
+        None,
+    )
+    if previous_existing_name is None:
         raise ValueError(
             f"Previous payroll sheet '{previous_month_name}' not found in {path.name}"
         )
 
-    template_ws = wb[previous_month_name]
+    template_ws = wb[previous_existing_name]
     ws = wb.create_sheet(sheet_name)
 
     for col_idx in range(1, template_ws.max_column + 1):
