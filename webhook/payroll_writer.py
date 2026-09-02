@@ -24,7 +24,7 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
 
-from webhook.excel_writer import _first_empty_row, _format_services
+from webhook.excel_writer import _date_value, _first_empty_row, _format_services
 from webhook.schema import ExtractedJob
 
 log = logging.getLogger("max_webhook.payroll")
@@ -147,22 +147,50 @@ def _match_employee_column(ws: Worksheet, employee_name: str) -> Optional[int]:
     return None
 
 
+def _find_duplicate_row(
+    ws: Worksheet,
+    job_date,
+    plate: str,
+    service_text: str,
+    matched_col: Optional[int],
+    amount: Optional[int],
+) -> int | None:
+    """Find an existing payroll row before a recovery import writes it again."""
+    for row in range(2, ws.max_row + 1):
+        same_date_and_plate = (
+            _date_value(ws.cell(row=row, column=1).value) == job_date
+            and str(ws.cell(row=row, column=2).value or "").strip().upper() == plate.strip().upper()
+        )
+        if not same_date_and_plate:
+            continue
+        if matched_col is not None and ws.cell(row=row, column=matched_col).value == amount:
+            return row
+        if (
+            matched_col is None
+            and str(ws.cell(row=row, column=3).value or "").strip().lower()
+            == service_text.strip().lower()
+        ):
+            return row
+    return None
+
+
 def append_salary_row(
     payroll_path: str | Path,
     job: ExtractedJob,
     message_timestamp_ms: int,
     employee_name: str,
     original_text: str = "",
-) -> tuple[str, bool]:
+) -> tuple[str, bool, bool]:
     """
     Appends one row to the shared monthly payroll sheet: Дата/VIN/Услуга
     are always filled, the amount is placed under the matched employee's
     column only if the match is unambiguous. All employees stay on the same
     worksheet as separate columns.
 
-    Returns (sheet_name, matched) — matched=False means the row was
+    Returns (sheet_name, matched, inserted) — matched=False means the row was
     written but no employee column could be confidently identified, so
-    the amount cell was left blank for manual entry.
+    the amount cell was left blank for manual entry. inserted=False means
+    the same row already existed and was not written again.
     """
     path = Path(payroll_path)
     if not path.exists():
@@ -179,6 +207,20 @@ def append_salary_row(
     amount = job.total_amount_rub
 
     matched_col = _match_employee_column(ws, employee_name) if amount is not None else None
+
+    duplicate_row = _find_duplicate_row(
+        ws, dt.date(), plate, service_text, matched_col, amount
+    )
+    if duplicate_row is not None:
+        matched = matched_col is not None
+        log.info(
+            "PAYROLL DUPLICATE SKIPPED | sheet='%s' | row=%d | plate=%s | employee=%s",
+            sheet_name,
+            duplicate_row,
+            plate,
+            employee_name,
+        )
+        return sheet_name, matched, False
 
     row_values = [None] * ws.max_column
     row_values[0] = dt.date()
@@ -208,4 +250,4 @@ def append_salary_row(
         sheet_name, target_row, plate, employee_name, amount, matched,
     )
 
-    return sheet_name, matched
+    return sheet_name, matched, True
