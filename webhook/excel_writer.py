@@ -82,18 +82,43 @@ def _format_services(job: ExtractedJob) -> str:
     return " + ".join(parts)
 
 
+def _date_value(value: object):
+    """Return a date for Excel date/datetime values, otherwise unchanged."""
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
+def _find_duplicate_row(
+    ws: Worksheet,
+    job_date,
+    plate: str,
+    amount: int | None,
+) -> int | None:
+    """Find an already written row so a recovery import stays duplicate-safe."""
+    for row in range(2, ws.max_row + 1):
+        if (
+            _date_value(ws.cell(row=row, column=1).value) == job_date
+            and str(ws.cell(row=row, column=2).value or "").strip().upper() == plate.strip().upper()
+            and ws.cell(row=row, column=4).value == amount
+        ):
+            return row
+    return None
+
+
 def append_job(
     excel_path: str | Path,
     job: ExtractedJob,
     message_timestamp_ms: int,
     original_text: str = "",
-) -> str:
+) -> tuple[str, bool]:
     """
     Append one row to the appropriate monthly sheet, chosen automatically
     from the message date (e.g. a message on Sep 1 goes to 'Сентябро 26'
     even if the previous message was in 'Август 26').
 
-    Returns the sheet name where the row was written.
+    Returns (sheet_name, inserted). inserted=False means the same row was
+    already present and was not written again.
     """
     path = Path(excel_path)
     if not path.exists():
@@ -113,6 +138,17 @@ def append_job(
     plate = job.license_plate or f"[НЕТ НОМЕРА] {original_text[:30]}"
     service_text = _format_services(job) or original_text[:60]
     amount = job.total_amount_rub
+
+    duplicate_row = _find_duplicate_row(ws, dt.date(), plate, amount)
+    if duplicate_row is not None:
+        log.info(
+            "EXCEL DUPLICATE SKIPPED | sheet='%s' | row=%d | plate=%s | amount=%s",
+            sheet_name,
+            duplicate_row,
+            plate,
+            amount,
+        )
+        return sheet_name, False
 
     target_row = _first_empty_row(ws)
     row = [dt.date(), plate, service_text, amount]
@@ -140,4 +176,4 @@ def append_job(
         job.needs_review,
     )
 
-    return sheet_name
+    return sheet_name, True
