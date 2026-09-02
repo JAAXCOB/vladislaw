@@ -26,7 +26,7 @@ def normalize_plate(plate: str) -> str:
 def _load_all() -> dict:
     if STATE_PATH.exists():
         try:
-            return json.loads(STATE_PATH.read_text())
+            return json.loads(STATE_PATH.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, ValueError):
             return {"chats": {}}
     return {"chats": {}}
@@ -34,7 +34,10 @@ def _load_all() -> dict:
 
 def _save_all(data: dict) -> None:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    STATE_PATH.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _chat_state(data: dict, chat_id: str) -> dict:
