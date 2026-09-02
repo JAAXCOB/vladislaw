@@ -175,7 +175,7 @@ def main() -> None:
 
         if not mid:
             continue
-        if mid in processed_mids:
+        if not payroll_only and mid in processed_mids:
             continue
         if not text:
             print(f"--- {sender_name}: (нет текста — фото/видео без подписи), пропущено")

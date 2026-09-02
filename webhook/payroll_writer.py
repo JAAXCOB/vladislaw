@@ -85,6 +85,8 @@ def _get_or_create_sheet(wb: openpyxl.Workbook, sheet_name: str, path: Path) -> 
                 dst.fill = copy(src.fill)
                 dst.border = copy(src.border)
                 dst.number_format = src.number_format
+        for col_letter, col_dim in template_ws.column_dimensions.items():
+            ws.column_dimensions[col_letter].width = col_dim.width
 
     log.info("Created new payroll sheet '%s' in %s", sheet_name, path.name)
     return ws
