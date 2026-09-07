@@ -4,15 +4,13 @@ Periodic batch import — no server needed.
 Every run fetches a fixed rolling window (default: the last 24 hours)
 from the MAX group chat via GET /messages, runs AI extraction, and
 appends results to the Excel file. The window does NOT extend from the
-previous run — each run only ever looks at "now minus N hours". Safe
-duplicate handling comes from tracking already-processed message IDs
-(data/import_state.json), not from the window itself, so a message
-seen in two overlapping windows is still only written once.
+previous run.
 
-If a scheduled run is ever missed (computer off, etc.), anything older
-than the window is simply not picked up — this is a deliberate
-trade-off for predictable, bounded runs rather than an ever-growing
-catch-up window.
+Duplicate handling tracks both message IDs and the last text seen for each
+message. Unchanged messages are skipped. If a previously processed MAX
+message is edited, the same mid is processed again with its new text. This
+is important for job tracking: a driver can correct an initially malformed
+close report and the edited message will then close the tracked job.
 
 When ENABLE_JOB_REMINDERS=true, this also tracks "new job request"
 messages (license plate) until a matching "closed job" message shows
@@ -20,14 +18,9 @@ up for the same plate. Anything still open after at least one full
 run has passed since it was first seen gets a reminder posted back
 into the chat — every run, until it's closed. A job first seen in
 THIS run is never reminded in this same run (one cycle of grace).
-
-Run on a schedule with cron/launchd/Task Scheduler (e.g. 3x/day).
-
-Usage:
-    python scripts/daily_import.py
-    python scripts/daily_import.py --hours 48   # look back further than usual
 """
 import argparse
+import hashlib
 import json
 import sys
 import textwrap
@@ -38,10 +31,6 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
-# Windows redirects stdout to a non-UTF-8 code page (e.g. cp1251) when it's
-# not a real console (as happens under Task Scheduler with `>> log.txt`),
-# which crashes on emoji/unusual characters in chat messages. Force UTF-8
-# so nothing in the log can bring the whole run down mid-batch.
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
@@ -58,39 +47,44 @@ from webhook.open_jobs_tracker import OpenJobsTracker
 from webhook.payroll_writer import append_salary_row
 
 STATE_PATH = Path(__file__).parent.parent / "data" / "import_state.json"
-MAX_PROCESSED_MIDS = 2000  # rolling window to guard against boundary duplicates
-PAGE_SIZE = 100  # MAX API max for GET /messages
+MAX_PROCESSED_MIDS = 2000
+PAGE_SIZE = 100
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
 
 def load_state() -> dict:
     if STATE_PATH.exists():
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    return {"processed_mids": []}
+        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    else:
+        state = {"processed_mids": []}
+    state.setdefault("processed_mids", [])
+    state.setdefault("message_fingerprints", {})
+    return state
 
 
 def save_state(state: dict) -> None:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # Keep only the most recent mids to avoid unbounded growth
     state["processed_mids"] = state["processed_mids"][-MAX_PROCESSED_MIDS:]
+    kept = set(state["processed_mids"])
+    state["message_fingerprints"] = {
+        mid: fingerprint
+        for mid, fingerprint in state.get("message_fingerprints", {}).items()
+        if mid in kept
+    }
     STATE_PATH.write_text(
         json.dumps(state, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
 
-def fetch_all_messages(client: httpx.Client, chat_id: str, oldest_ms: int, newest_ms: int) -> list[dict]:
-    """
-    Paginate through GET /messages until the full [oldest_ms, newest_ms] window is covered.
+def text_fingerprint(text: str) -> str:
+    """Stable fingerprint used to detect edits while the MAX mid stays unchanged."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    MAX returns messages newest-first, and per the API's own description:
-    "Messages traversed in reverse direction ... if you use `from` and `to`
-    parameters, `to` must be less than `from`". So `from` is the upper
-    (more recent) bound and `to` is the lower (older) bound — the opposite
-    of what the names might suggest.
-    """
+
+def fetch_all_messages(client: httpx.Client, chat_id: str, oldest_ms: int, newest_ms: int) -> list[dict]:
     all_messages: list[dict] = []
-    window_end = newest_ms  # this is the "from" query param — moves backward each page
+    window_end = newest_ms
 
     while True:
         resp = client.get(
@@ -111,11 +105,9 @@ def fetch_all_messages(client: httpx.Client, chat_id: str, oldest_ms: int, newes
             break
 
         all_messages.extend(batch)
-
         if len(batch) < PAGE_SIZE:
             break
 
-        # Move the window backward past the oldest message in this page
         min_ts = min(m.get("timestamp", 0) for m in batch)
         if min_ts >= window_end:
             break
@@ -123,8 +115,6 @@ def fetch_all_messages(client: httpx.Client, chat_id: str, oldest_ms: int, newes
         if window_end <= oldest_ms:
             break
 
-    # MAX returns newest-first; process oldest-to-newest so Excel rows land
-    # in chronological order like the rest of the sheet.
     all_messages.sort(key=lambda m: m.get("timestamp", 0))
     return all_messages
 
@@ -168,6 +158,7 @@ def main() -> None:
           f"— {window_label} ({from_ms} to {now_ms})...\n")
 
     processed_mids = set(state["processed_mids"])
+    message_fingerprints = state["message_fingerprints"]
 
     tracker: OpenJobsTracker | None = None
     if (settings.enable_job_reminders or args.rebuild_open_jobs) and not payroll_only:
@@ -177,9 +168,9 @@ def main() -> None:
             tracker.clear_all()
             print("Open-job list cleared; rebuilding it from the selected messages.\n")
 
-    # verify=False: platform-api2.max.ru uses a Russian government CA (Минцифры)
-    # not included in standard CA bundles.
-    with httpx.Client(timeout=30, verify=False) as client:
+    # Use the system CA store. The server has the Russian Trusted Root/Sub CA
+    # required by platform-api2.max.ru installed in /etc/ssl/certs.
+    with httpx.Client(timeout=30, verify="/etc/ssl/certs/ca-certificates.crt") as client:
         messages = fetch_all_messages(client, settings.max_chat_id, from_ms, now_ms)
 
     print(f"Received {len(messages)} message(s) from MAX.\n")
@@ -190,24 +181,40 @@ def main() -> None:
     new_job_count = 0
     payroll_written = 0
     payroll_unmatched = 0
+    edited_count = 0
 
     for raw_msg in messages:
         message = Message.model_validate(raw_msg)
         mid = message.body.mid if message.body else None
-        text = message.resolve_text()  # falls back to link.message.text for forwards
+        text = message.resolve_text()
         ts = message.timestamp or 0
         sender_name = message.sender.first_name if message.sender else ""
-        employee_name = message.effective_sender_name()  # forwarded original sender if applicable
+        employee_name = message.effective_sender_name()
 
         if not mid:
             continue
-        if not payroll_only and not args.rebuild_open_jobs and mid in processed_mids:
-            continue
+
+        fingerprint = text_fingerprint(text or "")
+        previously_processed = mid in processed_mids
+        previous_fingerprint = message_fingerprints.get(mid)
+
+        if not payroll_only and not args.rebuild_open_jobs and previously_processed:
+            if previous_fingerprint == fingerprint:
+                continue
+            # Old state files have no fingerprints. Re-process each such message
+            # once so edits made before this feature was deployed are not missed.
+            edited_count += 1
+            if previous_fingerprint is None:
+                print(f"--- повторная проверка ранее обработанного сообщения {mid}")
+            else:
+                print(f"--- обнаружено редактирование сообщения {mid}")
+
         if not text:
             print(f"--- {sender_name}: (нет текста — фото/видео без подписи), пропущено")
             skipped_count += 1
             if not payroll_only:
                 processed_mids.add(mid)
+                message_fingerprints[mid] = fingerprint
             continue
 
         print(f"--- {sender_name}: {text!r}")
@@ -226,6 +233,7 @@ def main() -> None:
                 new_job_count += 1
                 if not payroll_only:
                     processed_mids.add(mid)
+                    message_fingerprints[mid] = fingerprint
                 continue
 
             if not job.is_closed_job_report:
@@ -233,6 +241,7 @@ def main() -> None:
                 skipped_count += 1
                 if not payroll_only:
                     processed_mids.add(mid)
+                    message_fingerprints[mid] = fingerprint
                 continue
 
             if tracker and job.license_plate:
@@ -272,8 +281,10 @@ def main() -> None:
 
         if not payroll_only:
             processed_mids.add(mid)
+            message_fingerprints[mid] = fingerprint
 
     state["processed_mids"] = list(processed_mids)
+    state["message_fingerprints"] = message_fingerprints
     save_state(state)
 
     reminders_sent = 0
@@ -283,8 +294,6 @@ def main() -> None:
             print(f"\n--- Напоминания о незакрытых заявках ({len(due)}) ---")
         for open_job in due:
             plate = open_job["plate"]
-            # Collapse the raw multi-line message into one line and cut at a
-            # word boundary (not mid-word) for a clean, compact reminder.
             raw_excerpt = " ".join(open_job.get("excerpt", "").split())
             excerpt = textwrap.shorten(raw_excerpt, width=100, placeholder="...")
             reminder_text = (
@@ -305,6 +314,7 @@ def main() -> None:
     summary = (
         f"\nГотово. Новых записей: {new_count} (из них требуют проверки: {review_count}), "
         f"новых заявок в работу: {new_job_count}, "
+        f"отредактированных/повторно проверенных сообщений: {edited_count}, "
         f"пропущено нерабочих сообщений: {skipped_count}."
     )
     if settings.payroll_file_path:
