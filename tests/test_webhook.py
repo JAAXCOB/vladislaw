@@ -16,6 +16,7 @@ os.environ.setdefault("MAX_BOT_TOKEN", "test-token-placeholder")
 os.environ.setdefault("MAX_WEBHOOK_SECRET", "test-secret-ABC")
 os.environ.setdefault("MAX_WEBHOOK_URL", "https://example.com/webhook")
 
+from webhook.extractor import _structured_request_overrides  # noqa: E402
 from webhook.main import app  # noqa: E402
 
 VALID_SECRET = "test-secret-ABC"
@@ -119,7 +120,9 @@ def post_webhook(client: TestClient, payload: dict, secret: str = VALID_SECRET):
 def test_health(client: TestClient) -> None:
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    assert resp.json()["status"] == "ok"
+    assert "partner_sync_queue" in resp.json()
+    assert "tracked_open_jobs" in resp.json()
 
 
 def test_message_created_returns_200(client: TestClient) -> None:
@@ -171,3 +174,26 @@ def test_unknown_update_type_does_not_crash(client: TestClient) -> None:
     payload = {"update_type": "some_future_event_type", "timestamp": 1723382999000}
     resp = post_webhook(client, payload)
     assert resp.status_code == 200
+
+
+def test_structured_partner_request_fields() -> None:
+    text = """Примите, пожалуйста, заявку на эвакуатор на сегодня
+
+Город: Москва
+Coolray (BelGee)
+е523тт797
+Откуда: 55.567055, 37.485786
+Куда: CIDR | FIT ЮНЫХ ЛЕНИНЦЕВ (ПОДОЛЬСК, ЮНЫХ ЛЕНИНЦЕВ ПР-КТ, 11)
+Тариф: эконом
+Телефон: 89263021998
+Комментарий: Слесарный. диагностика системы ож
+
+Крюка нет.
+"""
+    fields = _structured_request_overrides(text)
+    assert fields["pickup_lat"] == 55.567055
+    assert fields["pickup_lng"] == 37.485786
+    assert fields["pickup_address"] == "55.567055, 37.485786"
+    assert fields["destination"] == "CIDR | FIT ЮНЫХ ЛЕНИНЦЕВ (ПОДОЛЬСК, ЮНЫХ ЛЕНИНЦЕВ ПР-КТ, 11)"
+    assert fields["customer_phone"] == "89263021998"
+    assert fields["customer_comment"] == "Слесарный. диагностика системы ож\n\nКрюка нет."
