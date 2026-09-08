@@ -104,7 +104,17 @@ jobs:
                sleep 2
              done
 
-             curl -fsS "https://${PUBLIC_HOST}/health"
+             for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+               if curl -fsS "https://${PUBLIC_HOST}/health"; then
+                 break
+               fi
+               if [ "$attempt" -eq 12 ]; then
+                 systemctl status caddy.service --no-pager -l || true
+                 journalctl -u caddy.service --no-pager -n 120 || true
+                 exit 1
+               fi
+               sleep 5
+             done
              .venv/bin/python scripts/register_webhook.py
              systemctl status max-webhook.service --no-pager -l
              systemctl status caddy.service --no-pager -l'
