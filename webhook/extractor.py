@@ -147,7 +147,7 @@ def _structured_request_overrides(message_text: str) -> dict:
         if normalized:
             updates["customer_phone"] = normalized
 
-    comment = re.search(r"(?ims)^\s*Комментарий\s*:\s*(.+?)\s*$", message_text)
+    comment = re.search(r"(?is)(?:^|\n)\s*Комментарий\s*:\s*(.+)\Z", message_text)
     if comment:
         updates["customer_comment"] = comment.group(1).strip()[:600]
 
