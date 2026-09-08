@@ -7,13 +7,14 @@ Usage:
 Reads MAX_BOT_TOKEN, MAX_WEBHOOK_SECRET, MAX_WEBHOOK_URL from .env or environment.
 Run once after the bot token is approved and your HTTPS endpoint is live.
 The deployment workflow runs this registration after every successful server update.
-Repeated deployment keeps the same webhook endpoint and subscribed event types.\nDeployment failures are diagnosed by the server workflow before registration.
+Repeated deployment keeps the same webhook endpoint and subscribed event types.
+Deployment failures are diagnosed by the server workflow before registration.
 """
 import json
 import os
+import ssl
 import sys
 
-import certifi
 import httpx
 from dotenv import load_dotenv
 
@@ -48,7 +49,8 @@ def main() -> None:
     print(f"  Update types: {SUBSCRIBE_ONLY_TYPES}")
     print()
 
-    tls_context = ssl.create_default_context()\n    with httpx.Client(verify=tls_context) as client:
+    tls_context = ssl.create_default_context()
+    with httpx.Client(verify=tls_context) as client:
         resp = client.post(
             f"{MAX_API_BASE}/subscriptions",
             headers={
