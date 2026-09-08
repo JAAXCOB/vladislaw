@@ -66,6 +66,7 @@ jobs:
              python3 -m venv .venv
              .venv/bin/python -m pip install --upgrade pip
              .venv/bin/pip install -r requirements.txt
+             .venv/bin/pytest -q tests/test_webhook.py::test_structured_partner_request_fields
 
              install -d -m 0755 /opt/vladislaw/data/excel
 
@@ -159,4 +160,5 @@ jobs:
             exit 0
           fi
           git commit -m "Update safe production status [skip ci]"
+          git pull --rebase origin claude/max-excel-evacuation-automation-zxuvb4
           git push origin HEAD:claude/max-excel-evacuation-automation-zxuvb4
