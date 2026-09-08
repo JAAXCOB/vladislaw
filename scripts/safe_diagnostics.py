@@ -50,6 +50,8 @@ def show(name: str, pattern: str) -> None:
 print("SAFE_DIAGNOSTICS_BEGIN")
 show("max_messages_today", "MESSAGE_CREATED")
 show("non_closed_messages_today", "Message does not report a closed job")
+show("partner_upserts_today", "AV Rescue sync delivered | event=upsert")
+show("partner_closes_today", "AV Rescue sync delivered | event=close")
 show("sync_failures_today", "AV Rescue synchronization failed")
 show("excel_failures_today", "Failed to write to Excel")
 show("excel_writes_today", "Written to sheet")
