@@ -42,7 +42,7 @@ log = logging.getLogger("max_webhook")
 # App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="MAX Webhook", version="0.3.3")
+app = FastAPI(title="MAX Webhook", version="0.3.4")
 
 
 @app.get("/health")
