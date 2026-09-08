@@ -7,6 +7,7 @@ Finds the correct monthly sheet by message date, appends one row:
 from __future__ import annotations
 
 import logging
+from copy import copy
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -69,6 +70,52 @@ def _sheet_name(dt: datetime) -> str:
     return f"{month} {year}"
 
 
+def _get_or_create_sheet(
+    wb: openpyxl.Workbook,
+    sheet_name: str,
+    dt: datetime,
+    path: Path,
+) -> Worksheet:
+    """Reuse the current month or create it from the previous month header."""
+    existing = next((name for name in wb.sheetnames if name.casefold() == sheet_name.casefold()), None)
+    if existing is not None:
+        return wb[existing]
+
+    month_only = MONTH_NAMES[dt.month].casefold()
+    existing = next((name for name in wb.sheetnames if name.casefold() == month_only), None)
+    if existing is not None:
+        return wb[existing]
+
+    previous_month = 12 if dt.month == 1 else dt.month - 1
+    previous_year = dt.year - 1 if dt.month == 1 else dt.year
+    previous_name = f"{MONTH_NAMES[previous_month]} {str(previous_year)[2:]}"
+    template_name = next(
+        (name for name in wb.sheetnames if name.casefold() == previous_name.casefold()),
+        None,
+    )
+    if template_name is None:
+        raise ValueError(f"Previous monthly sheet '{previous_name}' not found in Excel file")
+
+    template = wb[template_name]
+    ws = wb.create_sheet(sheet_name)
+    for col_idx in range(1, max(4, template.max_column) + 1):
+        source = template.cell(row=1, column=col_idx)
+        target = ws.cell(row=1, column=col_idx)
+        target.value = source.value
+        if source.has_style:
+            target.font = copy(source.font)
+            target.alignment = copy(source.alignment)
+            target.fill = copy(source.fill)
+            target.border = copy(source.border)
+            target.number_format = source.number_format
+            target.protection = copy(source.protection)
+    for letter, dimension in template.column_dimensions.items():
+        ws.column_dimensions[letter].width = dimension.width
+    ws.freeze_panes = template.freeze_panes
+    log.info("Created monthly sheet '%s' from '%s' in %s", sheet_name, template_name, path.name)
+    return ws
+
+
 
 def _format_services(job: ExtractedJob) -> str:
     """
@@ -128,12 +175,7 @@ def append_job(
     sheet_name = _sheet_name(dt)
 
     wb = openpyxl.load_workbook(path)
-
-    if sheet_name not in wb.sheetnames:
-        log.warning("Sheet '%s' not found in %s — available: %s", sheet_name, path.name, wb.sheetnames)
-        raise ValueError(f"Sheet '{sheet_name}' not found in Excel file")
-
-    ws = wb[sheet_name]
+    ws = _get_or_create_sheet(wb, sheet_name, dt, path)
 
     plate = job.license_plate or f"[НЕТ НОМЕРА] {original_text[:30]}"
     service_text = _format_services(job) or original_text[:60]
