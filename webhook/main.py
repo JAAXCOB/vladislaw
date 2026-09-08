@@ -9,6 +9,7 @@ import json
 import logging
 import secrets
 import sys
+from pathlib import Path
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
@@ -37,6 +38,35 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 log = logging.getLogger("max_webhook")
+
+# One-time production reset requested on 2026-09-08. It clears only the
+# reminder list and pending AV Rescue delivery queue. Excel reports and the
+# processed-message history are deliberately preserved.
+def reset_stale_runtime_state_once() -> None:
+    data_dir = Path(__file__).parent.parent / "data"
+    marker = data_dir / "runtime_reset_2026-09-08_v1.done"
+    if marker.exists():
+        return
+
+    data_dir.mkdir(parents=True, exist_ok=True)
+    targets = {
+        data_dir / "open_jobs_state.json": '{"chats": {}}\n',
+        data_dir / "av_rescue_sync_queue.json": '[]\n',
+    }
+    for path, empty_payload in targets.items():
+        if path.exists():
+            backup = path.with_name(path.name + ".bak-2026-09-08")
+            if not backup.exists():
+                path.replace(backup)
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(empty_payload, encoding="utf-8")
+        temporary.replace(path)
+
+    marker.write_text("reset completed\n", encoding="utf-8")
+    log.warning("Cleared stale open-job reminders and pending AV Rescue sync queue")
+
+
+reset_stale_runtime_state_once()
 
 # ---------------------------------------------------------------------------
 # App
