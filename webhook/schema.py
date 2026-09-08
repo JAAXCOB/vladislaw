@@ -49,6 +49,14 @@ class ExtractedJob(BaseModel):
     license_plate: Optional[str] = Field(None, description="Госномер в верхнем регистре, напр. 'Н225РС797'")
     pickup_address: Optional[str] = Field(None, description="Адрес откуда забрали автомобиль")
     destination: Optional[str] = Field(None, description="Куда отвезли — адрес или название стоянки")
+    pickup_lat: Optional[float] = Field(None, ge=-90, le=90, description="Широта точки подачи")
+    pickup_lng: Optional[float] = Field(None, ge=-180, le=180, description="Долгота точки подачи")
+    destination_lat: Optional[float] = Field(None, ge=-90, le=90, description="Широта конечной точки")
+    destination_lng: Optional[float] = Field(None, ge=-180, le=180, description="Долгота конечной точки")
+    service_until: Optional[str] = Field(
+        None,
+        description="До какого времени работает сервис/стоянка; только текст из заявки",
+    )
     parking_lot: Optional[str] = Field(None, description="Номер/название спецстоянки, напр. 'Спецстоянка №3'")
     status: JobStatus = Field(JobStatus.unknown, description="Статус заявки")
     services: list[ServiceItem] = Field(default_factory=list, description="Перечень услуг с ценами")

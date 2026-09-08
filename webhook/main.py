@@ -1,8 +1,8 @@
 """
 MAX webhook receiver — production entry point.
 
-Receives message_created events, runs AI extraction, writes the
-result into the existing Excel file. Runs continuously on a server
+Receives new and edited messages, runs one AI extraction, synchronizes the
+operational AV Rescue feed and keeps the existing Excel reporting. Runs continuously on a server
 (unlike scripts/poll.py, which is for local dev only).
 """
 import json
@@ -15,6 +15,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, st
 from pydantic import ValidationError
 
 from webhook.config import settings
+from webhook.av_rescue_client import sync_extracted_job
 from webhook.excel_writer import append_job
 from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
@@ -41,7 +42,7 @@ log = logging.getLogger("max_webhook")
 # App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="MAX Webhook", version="0.2.0")
+app = FastAPI(title="MAX Webhook", version="0.3.0")
 
 
 @app.get("/health")
@@ -49,7 +50,14 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def process_message(text: str, sender_name: str, employee_name: str, timestamp_ms: int) -> None:
+def process_message(
+    text: str,
+    sender_name: str,
+    employee_name: str,
+    timestamp_ms: int,
+    chat_id: int | None,
+    message_id: str | None,
+) -> None:
     """
     Runs AI extraction and writes the result to Excel (and payroll, if configured).
     Executed as a background task so the webhook response isn't delayed.
@@ -60,8 +68,14 @@ def process_message(text: str, sender_name: str, employee_name: str, timestamp_m
         log.exception("Extraction failed for message: %r", text)
         return
 
+    try:
+        sync_extracted_job(job, chat_id, message_id, text)
+    except Exception:
+        # Reporting must continue even when the site is temporarily unavailable.
+        log.exception("AV Rescue synchronization failed for message: %r", text)
+
     if not job.is_closed_job_report:
-        log.info("Message does not report a closed job — skipping: %r", text)
+        log.info("Message does not report a closed job — skipping Excel: %r", text)
         return
 
     if not settings.excel_file_path:
@@ -132,8 +146,8 @@ async def webhook(
         log.warning("Update parsed with validation issues: %s", exc)
         return {"ok": "true"}
 
-    # --- 5. Structured log for message_created ------------------------------------
-    if update.update_type == UpdateType.message_created and update.message:
+    # --- 5. Process new and edited job messages ------------------------------------
+    if update.update_type in (UpdateType.message_created, UpdateType.message_edited) and update.message:
         msg = update.message
         sender_name = msg.sender.display_name if msg.sender else "unknown"
         sender_id = msg.sender.user_id if msg.sender else None
@@ -142,7 +156,8 @@ async def webhook(
         mid = msg.body.mid if msg.body else None
 
         log.info(
-            "MESSAGE_CREATED | mid=%s | chat_id=%s | from=%s (id=%s) | text=%r",
+            "%s | mid=%s | chat_id=%s | from=%s (id=%s) | text=%r",
+            update.update_type.value.upper(),
             mid,
             chat_id,
             sender_name,
@@ -150,9 +165,20 @@ async def webhook(
             text,
         )
 
-        if text:
+        configured_chat = str(settings.max_chat_id).strip()
+        if configured_chat and str(chat_id) != configured_chat:
+            log.info("Ignoring message from chat %s (configured chat: %s)", chat_id, configured_chat)
+        elif text:
             employee_name = msg.effective_sender_name()
-            background_tasks.add_task(process_message, text, sender_name, employee_name, update.timestamp)
+            background_tasks.add_task(
+                process_message,
+                text,
+                sender_name,
+                employee_name,
+                update.timestamp,
+                chat_id,
+                mid,
+            )
     else:
         log.info("UPDATE type=%s | timestamp=%s", update.update_type, update.timestamp)
 

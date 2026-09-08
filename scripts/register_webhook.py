@@ -22,7 +22,7 @@ TOKEN = os.getenv("MAX_BOT_TOKEN", "")
 SECRET = os.getenv("MAX_WEBHOOK_SECRET", "")
 WEBHOOK_URL = os.getenv("MAX_WEBHOOK_URL", "")
 
-SUBSCRIBE_ONLY_TYPES = ["message_created"]
+SUBSCRIBE_ONLY_TYPES = ["message_created", "message_edited"]
 
 
 def main() -> None:

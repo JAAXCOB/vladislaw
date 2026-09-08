@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     payroll_file_path: str = ""
     max_chat_id: str = ""
     enable_job_reminders: bool = False
+    av_rescue_api_url: str = ""
+    av_rescue_api_key: str = ""
+    av_rescue_sync_queue_path: str = "data/av_rescue_sync_queue.json"
 
     MAX_API_BASE: str = "https://platform-api2.max.ru"
     YANDEX_LLM_URL: str = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"

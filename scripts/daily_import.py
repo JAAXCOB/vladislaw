@@ -39,6 +39,7 @@ load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from webhook.config import settings
+from webhook.av_rescue_client import sync_extracted_job
 from webhook.excel_writer import append_job
 from webhook.extractor import extract_job
 from webhook.max_client import send_message
@@ -220,6 +221,9 @@ def main() -> None:
         print(f"--- {sender_name}: {text!r}")
         try:
             job = extract_job(text, sender_name)
+
+            if not payroll_only:
+                sync_extracted_job(job, settings.max_chat_id, mid, text)
 
             if job.is_new_job_request:
                 if not payroll_only:

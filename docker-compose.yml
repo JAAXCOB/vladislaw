@@ -8,6 +8,8 @@ services:
       EXCEL_FILE_PATH: /data/excel/evacuations.xlsx
     volumes:
       - ./data/excel:/data/excel
+      # Retry queue and daily-import state survive container rebuilds.
+      - ./data:/app/data
     expose:
       - "8000"
 
