@@ -7,17 +7,11 @@ operational AV Rescue feed and keeps the existing Excel reporting. Runs continuo
 """
 import json
 import logging
-import re
 import secrets
 import sys
-from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs
-
-import httpx
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
 from pydantic import ValidationError
 
 from webhook.config import settings
@@ -54,81 +48,6 @@ app = FastAPI(title="MAX Webhook", version="0.3.5")
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-@app.get("/pair-avr-8f3c21", response_class=HTMLResponse)
-async def pair_avr_form() -> HTMLResponse:
-    return HTMLResponse(
-        """<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <body style="font:16px Arial;background:#08090a;color:#fff;max-width:640px;margin:40px auto;padding:20px">
-        <h1>Привязка AV Rescue</h1><p>Введите ключ интеграции, созданный на av-rescue.ru.</p>
-        <form method="post"><input name="key" type="password" autocomplete="off" required
-        style="width:100%;padding:12px;box-sizing:border-box"><button
-        style="margin-top:14px;padding:12px;background:#ed111c;color:#fff;border:0">Подключить</button></form></body></html>""",
-        headers={"Cache-Control": "no-store"},
-    )
-
-
-@app.post("/pair-avr-8f3c21", response_class=HTMLResponse)
-async def pair_avr_complete(request: Request) -> HTMLResponse:
-    raw = (await request.body()).decode("utf-8", errors="replace")
-    key = parse_qs(raw).get("key", [""])[0].strip()
-    api_url = "https://av-rescue.ru/api/partner_order_sync.php"
-    if not re.fullmatch(r"[a-f0-9]{64}", key):
-        raise HTTPException(status_code=400, detail="Invalid key format")
-
-    validation_payload = {
-        "event": "close",
-        "source_id": "pairing-validation",
-        "license_plate": "",
-    }
-    try:
-        response = httpx.post(
-            api_url,
-            headers={"X-AVR-Partner-Key": key},
-            json=validation_payload,
-            timeout=15,
-        )
-        valid = response.status_code == 200 and response.json().get("ok") is True
-    except Exception:
-        log.exception("AV Rescue pairing validation failed")
-        valid = False
-    if not valid:
-        raise HTTPException(status_code=403, detail="Key validation failed")
-
-    env_path = Path(__file__).parent.parent / ".env"
-    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
-    values = {
-        "AV_RESCUE_API_URL": api_url,
-        "AV_RESCUE_API_KEY": key,
-        "AV_RESCUE_SYNC_QUEUE_PATH": "data/av_rescue_sync_queue.json",
-    }
-    updated: list[str] = []
-    seen: set[str] = set()
-    for line in lines:
-        name = line.split("=", 1)[0] if "=" in line else ""
-        if name in values:
-            if name not in seen:
-                updated.append(f"{name}={values[name]}")
-                seen.add(name)
-        else:
-            updated.append(line)
-    for name, value in values.items():
-        if name not in seen:
-            updated.append(f"{name}={value}")
-    temporary = env_path.with_suffix(".env.tmp")
-    temporary.write_text("\n".join(updated) + "\n", encoding="utf-8")
-    temporary.replace(env_path)
-
-    settings.av_rescue_api_url = api_url
-    settings.av_rescue_api_key = key
-    settings.av_rescue_sync_queue_path = "data/av_rescue_sync_queue.json"
-    log.info("AV Rescue integration paired successfully")
-    return HTMLResponse(
-        """<!doctype html><html lang="ru"><meta charset="utf-8"><body style="font:18px Arial;background:#08090a;color:#fff;padding:40px">
-        <h1>Связь установлена</h1><p>Ключ проверен и сохранён на сервере.</p></body></html>""",
-        headers={"Cache-Control": "no-store"},
-    )
 
 
 def process_message(
