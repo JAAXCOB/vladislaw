@@ -84,6 +84,8 @@ is_new_job_request = true — сообщение это НОВАЯ заявка,
   "destination_lat": число или null,
   "destination_lng": число или null,
   "service_until": "строка или null",
+  "customer_phone": "телефон из поля Телефон или null",
+  "customer_comment": "текст из поля Комментарий и следующие важные примечания или null",
   "parking_lot": "строка или null",
   "status": "completed|in_progress|unknown",
   "services": [{"name": "строка", "price_rub": число или null}],
@@ -117,6 +119,39 @@ def _parse_json_from_response(text: str) -> dict:
         raise ValueError("YandexGPT response must be a JSON object")
 
     return data
+
+
+def _structured_request_overrides(message_text: str) -> dict:
+    """Read explicit labelled fields deterministically; never geocode or guess."""
+    updates: dict = {}
+
+    pickup = re.search(
+        r"(?im)^\s*Откуда\s*:\s*([+-]?\d{1,2}(?:[.,]\d+)?)\s*[,; ]\s*([+-]?\d{1,3}(?:[.,]\d+)?)\s*$",
+        message_text,
+    )
+    if pickup:
+        lat = float(pickup.group(1).replace(",", "."))
+        lng = float(pickup.group(2).replace(",", "."))
+        if -90 <= lat <= 90 and -180 <= lng <= 180:
+            updates["pickup_lat"] = lat
+            updates["pickup_lng"] = lng
+            updates["pickup_address"] = f"{lat:.6f}, {lng:.6f}"
+
+    destination = re.search(r"(?im)^\s*Куда\s*:\s*(.+?)\s*$", message_text)
+    if destination:
+        updates["destination"] = destination.group(1).strip()
+
+    phone = re.search(r"(?im)^\s*Телефон\s*:\s*(.+?)\s*$", message_text)
+    if phone:
+        normalized = re.sub(r"[^\d+]", "", phone.group(1))
+        if normalized:
+            updates["customer_phone"] = normalized
+
+    comment = re.search(r"(?ims)^\s*Комментарий\s*:\s*(.+?)\s*$", message_text)
+    if comment:
+        updates["customer_comment"] = comment.group(1).strip()[:600]
+
+    return updates
 
 
 def extract_job(message_text: str, sender_name: str = "") -> ExtractedJob:
@@ -170,6 +205,9 @@ def extract_job(message_text: str, sender_name: str = "") -> ExtractedJob:
 
     data = _parse_json_from_response(raw_text)
     job = ExtractedJob.model_validate(data)
+    explicit = _structured_request_overrides(message_text)
+    if explicit:
+        job = job.model_copy(update=explicit)
 
     log.info(
         "EXTRACTED | is_closed=%s | is_new=%s | plate=%s | make=%s %s | status=%s | confidence=%s | needs_review=%s | missing=%s",
