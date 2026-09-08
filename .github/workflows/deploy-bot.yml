@@ -48,7 +48,16 @@ jobs:
              git checkout claude/max-excel-evacuation-automation-zxuvb4
              git merge --ff-only origin/claude/max-excel-evacuation-automation-zxuvb4
              if ! docker info >/dev/null 2>&1; then
-               systemctl start docker 2>/dev/null || service docker start
+               if ! systemctl start docker; then
+                 echo "=== Docker service status ==="
+                 systemctl status docker --no-pager -l || true
+                 echo "=== Docker service journal ==="
+                 journalctl -u docker.service --no-pager -n 120 || true
+                 echo "=== Server virtualization ==="
+                 systemd-detect-virt || true
+                 uname -a
+                 exit 1
+               fi
              fi
              docker info >/dev/null
              docker compose up -d --build
