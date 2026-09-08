@@ -9,6 +9,7 @@ import json
 import logging
 import secrets
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +45,8 @@ log = logging.getLogger("max_webhook")
 # App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="MAX Webhook", version="0.3.8")
+app = FastAPI(title="MAX Webhook", version="0.3.9")
+_open_jobs_lock = threading.Lock()
 
 
 @app.get("/health")
@@ -90,6 +92,18 @@ def process_message(
     except Exception:
         log.exception("Extraction failed for message: %r", text)
         return
+
+    if chat_id is not None and job.license_plate and (job.is_new_job_request or job.is_closed_job_report):
+        try:
+            with _open_jobs_lock:
+                tracker = OpenJobsTracker(str(chat_id))
+                if job.is_closed_job_report:
+                    tracker.mark_closed(job.license_plate)
+                else:
+                    tracker.register_new_job(job.license_plate, message_id or "", text)
+                tracker.save()
+        except Exception:
+            log.exception("Open-job tracking failed")
 
     try:
         sync_extracted_job(job, chat_id, message_id, text)
