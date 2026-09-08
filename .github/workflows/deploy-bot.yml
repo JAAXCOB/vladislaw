@@ -126,5 +126,32 @@ jobs:
                sleep 5
              done
              .venv/bin/python scripts/register_webhook.py
+
+             echo "SAFE_DIAGNOSTICS_BEGIN"
+             printf "max_messages_today=%s\\n" "$(journalctl -u max-webhook.service --since today --no-pager | grep -c "MESSAGE_CREATED" || true)"
+             printf "non_closed_messages_today=%s\\n" "$(journalctl -u max-webhook.service --since today --no-pager | grep -c "Message does not report a closed job" || true)"
+             printf "sync_failures_today=%s\\n" "$(journalctl -u max-webhook.service --since today --no-pager | grep -c "AV Rescue sync.*failed" || true)"
+             printf "excel_failures_today=%s\\n" "$(journalctl -u max-webhook.service --since today --no-pager | grep -c "Failed to write to Excel" || true)"
+             .venv/bin/python - <<"PY"
+import json
+from pathlib import Path
+
+queue_path = Path("data/av_rescue_sync_queue.json")
+try:
+    queue = json.loads(queue_path.read_text(encoding="utf-8")) if queue_path.exists() else []
+except Exception:
+    queue = []
+print(f"partner_sync_queue={len(queue) if isinstance(queue, list) else 0}")
+
+state_path = Path("data/open_jobs_state.json")
+try:
+    state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {"chats": {}}
+    total = sum(len((chat or {}).get("open_jobs", {})) for chat in state.get("chats", {}).values())
+except Exception:
+    total = 0
+print(f"tracked_open_jobs={total}")
+PY
+             echo "SAFE_DIAGNOSTICS_END"
+
              systemctl status max-webhook.service --no-pager -l
              systemctl status caddy.service --no-pager -l'
