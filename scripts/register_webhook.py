@@ -7,6 +7,7 @@ Usage:
 Reads MAX_BOT_TOKEN, MAX_WEBHOOK_SECRET, MAX_WEBHOOK_URL from .env or environment.
 Run once after the bot token is approved and your HTTPS endpoint is live.
 The deployment workflow runs this registration after every successful server update.
+Repeated deployment keeps the same webhook endpoint and subscribed event types.
 """
 import json
 import os
