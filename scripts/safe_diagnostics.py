@@ -66,10 +66,11 @@ except Exception:
 print(f"tracked_open_jobs={tracked}")
 
 failure_types: dict[str, int] = {}
-for _, message in rows:
+for index, (_, message) in enumerate(rows):
     if "Failed to write to Excel" not in message:
         continue
-    found = re.findall(r"([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception))(?::|$)", message)
+    window = "\n".join(item[1] for item in rows[index:index + 20])
+    found = re.findall(r"([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception))(?::|$)", window)
     error_type = found[-1] if found else "UnknownError"
     failure_types[error_type] = failure_types.get(error_type, 0) + 1
 print("excel_failure_types=" + ",".join(f"{name}:{count}" for name, count in sorted(failure_types.items())))
