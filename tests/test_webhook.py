@@ -180,20 +180,20 @@ def test_structured_partner_request_fields() -> None:
     text = """Примите, пожалуйста, заявку на эвакуатор на сегодня
 
 Город: Москва
-Coolray (BelGee)
-е523тт797
-Откуда: 55.567055, 37.485786
-Куда: CIDR | FIT ЮНЫХ ЛЕНИНЦЕВ (ПОДОЛЬСК, ЮНЫХ ЛЕНИНЦЕВ ПР-КТ, 11)
+Тестовый автомобиль
+а000аа000
+Откуда: 55.750000, 37.620000
+Куда: ТЕСТОВЫЙ СЕРВИС (МОСКВА, ТЕСТОВАЯ УЛ., 1)
 Тариф: эконом
-Телефон: 89263021998
-Комментарий: Слесарный. диагностика системы ож
+Телефон: 89990000000
+Комментарий: Диагностика системы
 
 Крюка нет.
 """
     fields = _structured_request_overrides(text)
-    assert fields["pickup_lat"] == 55.567055
-    assert fields["pickup_lng"] == 37.485786
-    assert fields["pickup_address"] == "55.567055, 37.485786"
-    assert fields["destination"] == "CIDR | FIT ЮНЫХ ЛЕНИНЦЕВ (ПОДОЛЬСК, ЮНЫХ ЛЕНИНЦЕВ ПР-КТ, 11)"
-    assert fields["customer_phone"] == "89263021998"
-    assert fields["customer_comment"] == "Слесарный. диагностика системы ож\n\nКрюка нет."
+    assert fields["pickup_lat"] == 55.75
+    assert fields["pickup_lng"] == 37.62
+    assert fields["pickup_address"] == "55.750000, 37.620000"
+    assert fields["destination"] == "ТЕСТОВЫЙ СЕРВИС (МОСКВА, ТЕСТОВАЯ УЛ., 1)"
+    assert fields["customer_phone"] == "89990000000"
+    assert fields["customer_comment"] == "Диагностика системы\n\nКрюка нет."
