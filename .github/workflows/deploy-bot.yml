@@ -1,0 +1,52 @@
+name: Deploy MAX bot
+
+on:
+  push:
+    branches:
+      - claude/max-excel-evacuation-automation-zxuvb4
+    paths:
+      - "webhook/**"
+      - "scripts/**"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - "requirements.txt"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-max-bot-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SERVER_HOST: ${{ secrets.SERVER_HOST }}
+      SERVER_USER: ${{ secrets.SERVER_USER }}
+      SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+    steps:
+      - name: Deploy current branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$SERVER_HOST" ] || [ -z "$SERVER_USER" ] || [ -z "$SERVER_PASSWORD" ]; then
+            echo "Auto-deploy is not configured: add SERVER_HOST, SERVER_USER and SERVER_PASSWORD secrets."
+            exit 0
+          fi
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          export SSHPASS="$SERVER_PASSWORD"
+
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=20 \
+            "$SERVER_USER@$SERVER_HOST" \
+            'set -euo pipefail
+             cd /opt/vladislaw
+             git fetch origin claude/max-excel-evacuation-automation-zxuvb4
+             git checkout claude/max-excel-evacuation-automation-zxuvb4
+             git merge --ff-only origin/claude/max-excel-evacuation-automation-zxuvb4
+             docker compose up -d --build
+             docker compose exec -T webhook python scripts/register_webhook.py
+             docker compose ps'
