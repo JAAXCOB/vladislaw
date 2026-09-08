@@ -3,6 +3,10 @@ max_messages_today=86
 last_max_messages_today_at=2026-09-08T20:18:49.752374+00:00
 non_closed_messages_today=68
 last_non_closed_messages_today_at=2026-09-08T20:18:52.310090+00:00
+partner_upserts_today=0
+last_partner_upserts_today_at=none
+partner_closes_today=0
+last_partner_closes_today_at=none
 sync_failures_today=0
 last_sync_failures_today_at=none
 excel_failures_today=15
@@ -15,4 +19,4 @@ partner_sync_queue=0
 tracked_open_jobs=0
 excel_failure_types=ValueError:15
 SAFE_DIAGNOSTICS_END
-checked_at_utc=2026-09-08T20:26:40Z
+checked_at_utc=2026-09-08T20:28:14Z
