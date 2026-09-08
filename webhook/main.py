@@ -47,7 +47,12 @@ app = FastAPI(title="MAX Webhook", version="0.3.5")
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "av_rescue": "configured"
+        if settings.av_rescue_api_url and settings.av_rescue_api_key
+        else "not_configured",
+    }
 
 
 def process_message(
