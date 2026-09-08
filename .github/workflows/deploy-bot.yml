@@ -16,6 +16,9 @@ concurrency:
   group: deploy-max-bot-production
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -27,6 +30,11 @@ jobs:
       AV_RESCUE_API_KEY: ${{ secrets.AV_RESCUE_API_KEY }}
       AV_RESCUE_API_URL: ${{ secrets.AV_RESCUE_API_URL }}
     steps:
+      - name: Check out diagnostics target
+        uses: actions/checkout@v4
+        with:
+          ref: claude/max-excel-evacuation-automation-zxuvb4
+
       - name: Deploy current branch
         shell: bash
         run: |
@@ -131,3 +139,24 @@ jobs:
 
              systemctl status max-webhook.service --no-pager -l
              systemctl status caddy.service --no-pager -l'
+
+      - name: Save privacy-safe runtime status
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$SERVER_HOST" ] || [ -z "$SERVER_USER" ] || [ -z "$SERVER_PASSWORD" ]; then
+            exit 0
+          fi
+          export SSHPASS="$SERVER_PASSWORD"
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 \
+            "$SERVER_USER@$SERVER_HOST" \
+            'cd /opt/vladislaw && .venv/bin/python scripts/safe_diagnostics.py' > runtime-status.txt
+          printf 'checked_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> runtime-status.txt
+          git config user.name "AV Rescue Deploy Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add runtime-status.txt
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Update safe production status [skip ci]"
+          git push origin HEAD:claude/max-excel-evacuation-automation-zxuvb4
