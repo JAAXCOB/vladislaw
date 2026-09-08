@@ -9,6 +9,7 @@ import json
 import logging
 import secrets
 import sys
+from pathlib import Path
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
@@ -19,6 +20,7 @@ from webhook.av_rescue_client import sync_extracted_job
 from webhook.excel_writer import append_job
 from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
+from webhook.open_jobs_tracker import OpenJobsTracker
 from webhook.payroll_writer import append_salary_row
 
 # ---------------------------------------------------------------------------
@@ -42,16 +44,32 @@ log = logging.getLogger("max_webhook")
 # App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="MAX Webhook", version="0.3.5")
+app = FastAPI(title="MAX Webhook", version="0.3.6")
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
+async def health() -> dict[str, Any]:
+    queue_path = Path(settings.av_rescue_sync_queue_path)
+    if not queue_path.is_absolute():
+        queue_path = Path(__file__).resolve().parent.parent / queue_path
+    try:
+        queue_data = json.loads(queue_path.read_text(encoding="utf-8")) if queue_path.exists() else []
+        queue_count = len(queue_data) if isinstance(queue_data, list) else 0
+    except Exception:
+        queue_count = -1
+
+    try:
+        tracked_open_jobs = len(OpenJobsTracker(settings.max_chat_id).list_open_jobs()) if settings.max_chat_id else 0
+    except Exception:
+        tracked_open_jobs = -1
+
     return {
         "status": "ok",
         "av_rescue": "configured"
         if settings.av_rescue_api_url and settings.av_rescue_api_key
         else "not_configured",
+        "partner_sync_queue": queue_count,
+        "tracked_open_jobs": tracked_open_jobs,
     }
 
 
