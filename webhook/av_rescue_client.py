@@ -115,6 +115,7 @@ def sync_extracted_job(
         "destination_lat": job.destination_lat,
         "destination_lng": job.destination_lng,
         "service_until": job.service_until,
-        "comment": original_text[:600],
+        "phone": job.customer_phone,
+        "comment": job.customer_comment or original_text[:600],
     }
     _deliver_with_retry(payload)
