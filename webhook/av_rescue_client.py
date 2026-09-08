@@ -60,6 +60,7 @@ def _post(payload: dict[str, Any]) -> bool:
                 json=payload,
             )
         if response.status_code == 200 and response.json().get("ok") is True:
+            log.info("AV Rescue sync delivered | event=%s", payload.get("event", "unknown"))
             return True
         log.error("AV Rescue sync failed: HTTP %s %s", response.status_code, response.text[:300])
     except Exception:
