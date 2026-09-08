@@ -47,19 +47,49 @@ jobs:
              git fetch origin claude/max-excel-evacuation-automation-zxuvb4
              git checkout claude/max-excel-evacuation-automation-zxuvb4
              git merge --ff-only origin/claude/max-excel-evacuation-automation-zxuvb4
-             if ! docker info >/dev/null 2>&1; then
-               if ! systemctl start docker; then
-                 echo "=== Docker service status ==="
-                 systemctl status docker --no-pager -l || true
-                 echo "=== Docker service journal ==="
-                 journalctl -u docker.service --no-pager -n 120 || true
-                 echo "=== Server virtualization ==="
-                 systemd-detect-virt || true
-                 uname -a
+
+             export DEBIAN_FRONTEND=noninteractive
+             apt-get update -qq
+             apt-get install -y -qq python3-venv python3-pip curl
+             python3 -m venv .venv
+             .venv/bin/python -m pip install --upgrade pip
+             .venv/bin/pip install -r requirements.txt
+
+             install -d -m 0755 /opt/vladislaw/data/excel
+             cat > /etc/systemd/system/max-webhook.service <<EOF
+[Unit]
+Description=MAX webhook receiver for AV Rescue
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/vladislaw
+EnvironmentFile=/opt/vladislaw/.env
+ExecStart=/opt/vladislaw/.venv/bin/uvicorn webhook.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+             systemctl daemon-reload
+             systemctl enable max-webhook.service
+             systemctl restart max-webhook.service
+
+             for attempt in 1 2 3 4 5 6; do
+               if curl -fsS http://127.0.0.1:8000/health; then
+                 break
+               fi
+               if [ "$attempt" -eq 6 ]; then
+                 systemctl status max-webhook.service --no-pager -l || true
+                 journalctl -u max-webhook.service --no-pager -n 120 || true
                  exit 1
                fi
-             fi
-             docker info >/dev/null
-             docker compose up -d --build
-             docker compose exec -T webhook python scripts/register_webhook.py
-             docker compose ps'
+               sleep 2
+             done
+
+             .venv/bin/python scripts/register_webhook.py
+             systemctl status max-webhook.service --no-pager -l'
