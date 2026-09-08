@@ -48,7 +48,7 @@ def main() -> None:
     print(f"  Update types: {SUBSCRIBE_ONLY_TYPES}")
     print()
 
-    with httpx.Client(verify=certifi.where()) as client:
+    tls_context = ssl.create_default_context()\n    with httpx.Client(verify=tls_context) as client:
         resp = client.post(
             f"{MAX_API_BASE}/subscriptions",
             headers={
