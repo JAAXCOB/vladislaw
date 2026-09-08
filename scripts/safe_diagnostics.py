@@ -1,19 +1,29 @@
 """Print privacy-safe production counters for deployment verification."""
 from __future__ import annotations
 
+import datetime as dt
 import json
 import subprocess
 from pathlib import Path
 
 
-def journal_count(pattern: str) -> int:
+def journal_rows() -> list[tuple[str, str]]:
     result = subprocess.run(
-        ["journalctl", "-u", "max-webhook.service", "--since", "today", "--no-pager"],
+        ["journalctl", "-u", "max-webhook.service", "--since", "today", "--no-pager", "-o", "json"],
         check=False,
         capture_output=True,
         text=True,
     )
-    return result.stdout.count(pattern)
+    rows: list[tuple[str, str]] = []
+    for line in result.stdout.splitlines():
+        try:
+            item = json.loads(line)
+            micros = int(item.get("__REALTIME_TIMESTAMP", 0))
+            stamp = dt.datetime.fromtimestamp(micros / 1_000_000, tz=dt.timezone.utc).isoformat()
+            rows.append((stamp, str(item.get("MESSAGE", ""))))
+        except Exception:
+            continue
+    return rows
 
 
 def json_value(path: Path, fallback):
@@ -23,11 +33,26 @@ def json_value(path: Path, fallback):
         return fallback
 
 
+rows = journal_rows()
+
+
+def matches(pattern: str) -> list[str]:
+    return [stamp for stamp, message in rows if pattern in message]
+
+
+def show(name: str, pattern: str) -> None:
+    stamps = matches(pattern)
+    print(f"{name}={len(stamps)}")
+    print(f"last_{name}_at={stamps[-1] if stamps else 'none'}")
+
+
 print("SAFE_DIAGNOSTICS_BEGIN")
-print(f"max_messages_today={journal_count('MESSAGE_CREATED')}")
-print(f"non_closed_messages_today={journal_count('Message does not report a closed job')}")
-print(f"sync_failures_today={journal_count('AV Rescue synchronization failed')}")
-print(f"excel_failures_today={journal_count('Failed to write to Excel')}")
+show("max_messages_today", "MESSAGE_CREATED")
+show("non_closed_messages_today", "Message does not report a closed job")
+show("sync_failures_today", "AV Rescue synchronization failed")
+show("excel_failures_today", "Failed to write to Excel")
+show("excel_writes_today", "Written to sheet")
+show("excel_duplicates_today", "Duplicate already exists")
 
 queue = json_value(Path("data/av_rescue_sync_queue.json"), [])
 print(f"partner_sync_queue={len(queue) if isinstance(queue, list) else -1}")
