@@ -56,11 +56,41 @@ jobs:
              .venv/bin/pip install -r requirements.txt
 
              install -d -m 0755 /opt/vladislaw/data/excel
+
+             PUBLIC_HOST="$(hostname -f)"
+             WEBHOOK_URL="https://${PUBLIC_HOST}/webhook"
+             WEBHOOK_SECRET="$(grep -E "^MAX_WEBHOOK_SECRET=." .env | head -n 1 | cut -d= -f2- || true)"
+             if [ -z "$WEBHOOK_SECRET" ]; then
+               WEBHOOK_SECRET="$(openssl rand -hex 32)"
+             fi
+
+             set_env_value() {
+               key="$1"
+               value="$2"
+               if grep -q "^${key}=" .env; then
+                 sed -i "s|^${key}=.*|${key}=${value}|" .env
+               else
+                 printf "%s=%s\n" "$key" "$value" >> .env
+               fi
+             }
+             set_env_value MAX_WEBHOOK_URL "$WEBHOOK_URL"
+             set_env_value MAX_WEBHOOK_SECRET "$WEBHOOK_SECRET"
+
+             if ! command -v caddy >/dev/null 2>&1; then
+               apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https gpg
+               curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+               curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt" > /etc/apt/sources.list.d/caddy-stable.list
+               apt-get update -qq
+               apt-get install -y -qq caddy
+             fi
+             printf "%s\n" "${PUBLIC_HOST} {" "    reverse_proxy 127.0.0.1:8000" "}" > /etc/caddy/Caddyfile
+
              printf "%s\n" "[Unit]" "Description=MAX webhook receiver for AV Rescue" "After=network-online.target" "Wants=network-online.target" "" "[Service]" "Type=simple" "WorkingDirectory=/opt/vladislaw" "EnvironmentFile=/opt/vladislaw/.env" "ExecStart=/opt/vladislaw/.venv/bin/uvicorn webhook.main:app --host 127.0.0.1 --port 8000" "Restart=always" "RestartSec=5" "TimeoutStopSec=20" "" "[Install]" "WantedBy=multi-user.target" > /etc/systemd/system/max-webhook.service
 
              systemctl daemon-reload
-             systemctl enable max-webhook.service
+             systemctl enable max-webhook.service caddy.service
              systemctl restart max-webhook.service
+             systemctl restart caddy.service
 
              for attempt in 1 2 3 4 5 6; do
                if curl -fsS http://127.0.0.1:8000/health; then
@@ -74,5 +104,7 @@ jobs:
                sleep 2
              done
 
+             curl -fsS "https://${PUBLIC_HOST}/health"
              .venv/bin/python scripts/register_webhook.py
-             systemctl status max-webhook.service --no-pager -l'
+             systemctl status max-webhook.service --no-pager -l
+             systemctl status caddy.service --no-pager -l'
