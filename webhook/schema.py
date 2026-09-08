@@ -57,6 +57,8 @@ class ExtractedJob(BaseModel):
         None,
         description="До какого времени работает сервис/стоянка; только текст из заявки",
     )
+    customer_phone: Optional[str] = Field(None, description="Телефон клиента из новой заявки")
+    customer_comment: Optional[str] = Field(None, description="Комментарий и важные примечания из новой заявки")
     parking_lot: Optional[str] = Field(None, description="Номер/название спецстоянки, напр. 'Спецстоянка №3'")
     status: JobStatus = Field(JobStatus.unknown, description="Статус заявки")
     services: list[ServiceItem] = Field(default_factory=list, description="Перечень услуг с ценами")
