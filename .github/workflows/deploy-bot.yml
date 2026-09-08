@@ -24,6 +24,8 @@ jobs:
       SERVER_HOST: ${{ secrets.SERVER_HOST }}
       SERVER_USER: ${{ secrets.SERVER_USER }}
       SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+      AV_RESCUE_API_KEY: ${{ secrets.AV_RESCUE_API_KEY }}
+      AV_RESCUE_API_URL: ${{ secrets.AV_RESCUE_API_URL }}
     steps:
       - name: Deploy current branch
         shell: bash
@@ -38,11 +40,13 @@ jobs:
           sudo apt-get install -y -qq sshpass
           export SSHPASS="$SERVER_PASSWORD"
 
-          sshpass -e ssh \
+          printf '%s\n%s\n' "$AV_RESCUE_API_KEY" "$AV_RESCUE_API_URL" | sshpass -e ssh \
             -o StrictHostKeyChecking=accept-new \
             -o ConnectTimeout=20 \
             "$SERVER_USER@$SERVER_HOST" \
             'set -euo pipefail
+             IFS= read -r AV_RESCUE_API_KEY_INPUT
+             IFS= read -r AV_RESCUE_API_URL_INPUT
              cd /opt/vladislaw
              git fetch origin claude/max-excel-evacuation-automation-zxuvb4
              git checkout claude/max-excel-evacuation-automation-zxuvb4
@@ -75,6 +79,12 @@ jobs:
              }
              set_env_value MAX_WEBHOOK_URL "$WEBHOOK_URL"
              set_env_value MAX_WEBHOOK_SECRET "$WEBHOOK_SECRET"
+             if [ -n "$AV_RESCUE_API_KEY_INPUT" ]; then
+               set_env_value AV_RESCUE_API_KEY "$AV_RESCUE_API_KEY_INPUT"
+             fi
+             if [ -n "$AV_RESCUE_API_URL_INPUT" ]; then
+               set_env_value AV_RESCUE_API_URL "$AV_RESCUE_API_URL_INPUT"
+             fi
 
              if ! command -v caddy >/dev/null 2>&1; then
                apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https gpg
