@@ -45,7 +45,7 @@ log = logging.getLogger("max_webhook")
 # App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="MAX Webhook", version="0.3.9")
+app = FastAPI(title="MAX Webhook", version="0.4.0")
 _open_jobs_lock = threading.Lock()
 
 
