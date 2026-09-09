@@ -1,0 +1,169 @@
+"""Deterministic safeguards for structured B2B close reports."""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from webhook.schema import ExtractedJob, ServiceItem, JobStatus, Confidence
+
+
+PLATE_RE = re.compile(
+    r"(?<![A-ZА-Я0-9])([АВЕКМНОРСТУХABEKMHOPCTYX])\s*(\d{3})\s*"
+    r"([АВЕКМНОРСТУХABEKMHOPCTYX]{2})\s*(\d{2,3})(?!\d)",
+    re.IGNORECASE,
+)
+CYRILLIC = str.maketrans({
+    "A": "А", "B": "В", "E": "Е", "K": "К", "M": "М", "H": "Н",
+    "O": "О", "P": "Р", "C": "С", "T": "Т", "Y": "У", "X": "Х",
+})
+
+EMPLOYEE_ALIASES = {
+    "валера": "Баранов Валерий Валера",
+    "валерий": "Баранов Валерий Валера",
+    "павел": "Макунин Павел",
+    "клим": "Матвеев Клим Беларус",
+    "g": "Баширов Гоша G",
+    "гоша": "Баширов Гоша G",
+    "николай": "Николай",
+    "шмэкс": "Максим Шмэкс",
+    "максим": "Максим Шмэкс",
+    "владислав": "750 Владислав",
+    "алексей": "Левов Алексей",
+}
+
+
+def normalize_plate(value: str) -> str:
+    match = PLATE_RE.search(value or "")
+    if not match:
+        return ""
+    return "".join(match.groups()).upper().translate(CYRILLIC)
+
+
+def employee_header(sender_name: str) -> str:
+    value = (sender_name or "").strip().casefold()
+    if value in EMPLOYEE_ALIASES:
+        return EMPLOYEE_ALIASES[value]
+    for alias, header in EMPLOYEE_ALIASES.items():
+        if alias in value.split():
+            return header
+    return sender_name.strip()
+
+
+def _number_after(pattern: str, text: str) -> int | None:
+    match = re.search(pattern, text, re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
+def parse_explicit_closed_report(text: str) -> ExtractedJob | None:
+    """Parse the partner's regular close-report format without an AI guess."""
+    compact = " ".join((text or "").replace("|", " ").split())
+    lower = compact.casefold()
+    if not re.search(r"\bзаявк\w*\s+закрыт\w*\b", lower):
+        return None
+    if "для бота" in lower:
+        return None
+
+    plate = normalize_plate(compact)
+    if not plate:
+        return None
+
+    services: list[ServiceItem] = []
+    total = 0
+    false_call = "ложн" in lower
+
+    if false_call:
+        amount = _number_after(r"ложн\w*\s+подач\w*\s+(\d{3,5})", compact) or 2000
+        services.append(ServiceItem(name="Ложная подача", price_rub=amount))
+        total += amount
+    else:
+        base = _number_after(r"эвакуац\w*\s+(\d{3,5})", compact)
+        if base is None:
+            # A close report containing a plate and charge components is still
+            # an evacuation; the partner's fixed base rate is 4,500 roubles.
+            amounts = [int(value) for value in re.findall(r"(?<!\d)(\d{2,5})\s*(?:р\.?|руб\.?|₽)", lower)]
+            bare_4500 = re.search(r"(?<!\d)4500(?!\d)", compact) is not None
+            if amounts or bare_4500:
+                base = 4500
+        if base is None:
+            return None
+        services.append(ServiceItem(name="Эвакуация", price_rub=base))
+        total += base
+
+    if "бустер" in lower:
+        booster = _number_after(r"бустер\w*\s+(\d{3,5})", compact) or 5000
+        services.append(ServiceItem(name="Бустер", price_rub=booster))
+        total += booster
+
+    block_match = re.search(r"(?:(?<!\d)(\d{1,2})\s*блок|блок\w*\s*[-–]?\s*(\d{1,2}))", lower)
+    if block_match:
+        count = int(block_match.group(1) or block_match.group(2))
+        tail = compact[block_match.end():]
+        explicit = _number_after(r"^\s*\(?\s*(\d{3,5})\s*\)?", tail)
+        amount = explicit or count * 650
+        services.append(ServiceItem(name=f"{count} блок" if count == 1 else f"{count} блока", price_rub=amount))
+        total += amount
+
+    # Distance charges are normally written after the distance, e.g.
+    # "16 км от МКАД 1440" or "20+1 км за МКАД 1890".
+    km_pattern = re.compile(
+        r"(?<!\d)((?:\d{1,3}\s*\+\s*)?\d{1,3})\s*км\s*(до|от|за)\s*мкад\w*[\s.:,;/-]*(\d{2,5})",
+        re.IGNORECASE,
+    )
+    for match in km_pattern.finditer(compact):
+        distance = match.group(1).replace(" ", "")
+        direction = match.group(2).lower()
+        amount = int(match.group(3))
+        services.append(ServiceItem(name=f"{distance} км {direction} МКАД", price_rub=amount))
+        total += amount
+
+    direction_first_pattern = re.compile(
+        r"(до|от|за)\s*мкад\w*\s*(?<!\d)((?:\d{1,3}\s*\+\s*)?\d{1,3})\s*км[\s.:,;/-]*(\d{2,5})",
+        re.IGNORECASE,
+    )
+    for match in direction_first_pattern.finditer(compact):
+        direction = match.group(1).lower()
+        distance = match.group(2).replace(" ", "")
+        amount = int(match.group(3))
+        services.append(ServiceItem(name=f"{distance} км {direction} МКАД", price_rub=amount))
+        total += amount
+
+    # One report may combine both directions before one total: 1 км до МКАД
+    # и 1 от МКАД 180. Capture it only when the normal rule did not.
+    if not any("МКАД" in item.name for item in services):
+        combined = re.search(
+            r"(\d+)\s*км\s*(до|от|за)\s*мкад\w*\s*(?:и|\+)\s*(\d+)\s*(?:км\s*)?"
+            r"(до|от|за)\s*мкад\w*\s*(\d{2,5})",
+            compact,
+            re.IGNORECASE,
+        )
+        if combined:
+            amount = int(combined.group(5))
+            label = (
+                f"{combined.group(1)} км {combined.group(2).lower()} МКАД и "
+                f"{combined.group(3)} км {combined.group(4).lower()} МКАД"
+            )
+            services.append(ServiceItem(name=label, price_rub=amount))
+            total += amount
+
+    return ExtractedJob(
+        is_closed_job_report=True,
+        is_new_job_request=False,
+        license_plate=plate,
+        status=JobStatus.completed,
+        services=services,
+        total_amount_rub=total,
+        confidence=Confidence.high,
+        missing_required_fields=[],
+        needs_review=False,
+    )
+
+
+def report_is_writable(job: ExtractedJob) -> bool:
+    """Reject conversational closes that would create corrupt Excel rows."""
+    return bool(
+        job.is_closed_job_report
+        and normalize_plate(job.license_plate or "")
+        and job.total_amount_rub is not None
+        and job.total_amount_rub > 0
+        and job.services
+    )
