@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,24 @@ from webhook.schema import ExtractedJob
 
 log = logging.getLogger("max_webhook.av_rescue")
 _queue_lock = threading.Lock()
+
+
+def _split_destination_field(original_text: str, fallback: str | None) -> tuple[str | None, str | None]:
+    """Split `Куда: СЕРВИС (АДРЕС)` into a service title and point B."""
+    labelled = re.search(r"(?im)^\\s*Куда\\s*:\\s*(.+?)\\s*$", original_text)
+    if not labelled:
+        return None, fallback
+
+    raw_value = labelled.group(1).strip()
+    structured = re.match(r"^(.+?)\\s*\\(([^()]*)\\)\\s*$", raw_value)
+    if not structured:
+        return None, fallback or raw_value
+
+    service_name = structured.group(1).strip()
+    destination = structured.group(2).strip()
+    if not service_name or not destination:
+        return None, fallback or raw_value
+    return service_name, destination
 
 
 def _queue_path() -> Path:
@@ -98,7 +117,8 @@ def sync_extracted_job(
         return
 
     source_id = f"max:{chat_id or 'unknown'}:{message_id}"
-    service = job.services[0].name if job.services else "Эвакуация"
+    destination_service, destination = _split_destination_field(original_text, job.destination)
+    service = destination_service or (job.services[0].name if job.services else "Эвакуация")
     vehicle = " ".join(part for part in (job.vehicle_make, job.vehicle_model) if part).strip()
     payload: dict[str, Any] = {
         "event": "close" if job.is_closed_job_report else "upsert",
@@ -111,7 +131,7 @@ def sync_extracted_job(
         "pickup_address": job.pickup_address,
         "pickup_lat": job.pickup_lat,
         "pickup_lng": job.pickup_lng,
-        "destination": job.destination,
+        "destination": destination,
         "destination_lat": job.destination_lat,
         "destination_lng": job.destination_lng,
         "service_until": job.service_until,
