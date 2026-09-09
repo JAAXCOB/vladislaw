@@ -217,7 +217,10 @@ def append_salary_row(
     wb = openpyxl.load_workbook(path)
     ws = _get_or_create_sheet(wb, sheet_name, path)
 
-    if not _employee_columns(ws):\n        raise ValueError(f"Wrong workbook configured as payroll report: {path.name}")\n\n    plate = job.license_plate or f"[НЕТ НОМЕРА] {original_text[:30]}"
+    if not _employee_columns(ws):
+        raise ValueError(f"Wrong workbook configured as payroll report: {path.name}")
+
+    plate = job.license_plate or f"[НЕТ НОМЕРА] {original_text[:30]}"
     service_text = _format_services(job) or original_text[:60]
     amount = job.total_amount_rub
 
