@@ -10,7 +10,7 @@ import re
 
 import httpx
 
-from webhook.schema import ExtractedJob
+from webhook.schema import Confidence, ExtractedJob, JobStatus
 
 log = logging.getLogger("max_webhook.extractor")
 
@@ -84,8 +84,6 @@ is_new_job_request = true — сообщение это НОВАЯ заявка,
   "destination_lat": число или null,
   "destination_lng": число или null,
   "service_until": "строка или null",
-  "customer_phone": "телефон из поля Телефон или null",
-  "customer_comment": "текст из поля Комментарий и следующие важные примечания или null",
   "parking_lot": "строка или null",
   "status": "completed|in_progress|unknown",
   "services": [{"name": "строка", "price_rub": число или null}],
@@ -121,6 +119,19 @@ def _parse_json_from_response(text: str) -> dict:
     return data
 
 
+def _unknown_job(reason: str) -> ExtractedJob:
+    """Return a non-operational result without spending an AI request."""
+    return ExtractedJob(
+        is_closed_job_report=False,
+        is_new_job_request=False,
+        status=JobStatus.unknown,
+        confidence=Confidence.high,
+        missing_required_fields=[],
+        needs_review=False,
+        review_reason=reason,
+    )
+
+
 def _structured_request_overrides(message_text: str) -> dict:
     """Read explicit labelled fields deterministically; never geocode or guess."""
     updates: dict = {}
@@ -136,6 +147,10 @@ def _structured_request_overrides(message_text: str) -> dict:
             updates["pickup_lat"] = lat
             updates["pickup_lng"] = lng
             updates["pickup_address"] = f"{lat:.6f}, {lng:.6f}"
+    else:
+        labelled_pickup = re.search(r"(?im)^\s*Откуда\s*:\s*(.+?)\s*$", message_text)
+        if labelled_pickup:
+            updates["pickup_address"] = labelled_pickup.group(1).strip()
 
     destination = re.search(r"(?im)^\s*Куда\s*:\s*(.+?)\s*$", message_text)
     if destination:
@@ -151,7 +166,109 @@ def _structured_request_overrides(message_text: str) -> dict:
     if comment:
         updates["customer_comment"] = comment.group(1).strip()[:600]
 
+    service_until = re.search(
+        r"(?im)^\s*(?:Сервис\s+работает\s+до|До\s+какого\s+времени|Время\s+работы)\s*:\s*(.+?)\s*$",
+        message_text,
+    )
+    if service_until:
+        updates["service_until"] = service_until.group(1).strip()
+
     return updates
+
+
+def _vehicle_from_template(message_text: str, plate: str) -> tuple[str | None, str | None]:
+    """Read the vehicle line immediately preceding the plate in partner templates."""
+    lines = [line.strip() for line in message_text.splitlines() if line.strip()]
+    plate_index = next(
+        (index for index, line in enumerate(lines) if plate and plate in re.sub(r"\s+", "", line).upper()),
+        None,
+    )
+    if plate_index is None or plate_index == 0:
+        return None, None
+
+    candidate = lines[plate_index - 1]
+    if ":" in candidate or re.search(r"(?i)заявк|эвакуатор", candidate):
+        return None, None
+
+    parenthetical = re.match(r"^(.+?)\s*\(([^()]+)\)\s*$", candidate)
+    if parenthetical:
+        # Partner template commonly writes "MODEL (MAKE)", e.g. Coolray (BelGee).
+        return parenthetical.group(2).strip(), parenthetical.group(1).strip()
+
+    parts = candidate.split(maxsplit=1)
+    return parts[0], parts[1] if len(parts) == 2 else None
+
+
+def _local_extraction(message_text: str) -> tuple[ExtractedJob | None, str]:
+    """Handle common messages locally; return None only when AI is genuinely useful."""
+    from webhook.reporting_rules import (
+        is_bot_generated_message,
+        normalize_plate,
+        parse_explicit_closed_report,
+    )
+
+    if is_bot_generated_message(message_text):
+        return _unknown_job("bot reminder"), "local_reminder"
+
+    closed = parse_explicit_closed_report(message_text)
+    if closed is not None:
+        return closed, "local_closed"
+
+    explicit = _structured_request_overrides(message_text)
+    lower = message_text.casefold()
+    plate = normalize_plate(message_text)
+    is_standard_request = bool(
+        "pickup_address" in explicit
+        and "destination" in explicit
+        and plate
+        and ("заяв" in lower or "эваку" in lower)
+    )
+    if is_standard_request:
+        vehicle_make, vehicle_model = _vehicle_from_template(message_text, plate)
+        missing = [
+            field
+            for field, value in (
+                ("license_plate", plate),
+                ("vehicle_make", vehicle_make),
+                ("pickup_address", explicit.get("pickup_address")),
+                ("destination", explicit.get("destination")),
+            )
+            if not value
+        ]
+        return ExtractedJob(
+            is_closed_job_report=False,
+            is_new_job_request=True,
+            vehicle_make=vehicle_make,
+            vehicle_model=vehicle_model,
+            license_plate=plate,
+            pickup_address=explicit.get("pickup_address"),
+            destination=explicit.get("destination"),
+            pickup_lat=explicit.get("pickup_lat"),
+            pickup_lng=explicit.get("pickup_lng"),
+            service_until=explicit.get("service_until"),
+            customer_phone=explicit.get("customer_phone"),
+            customer_comment=explicit.get("customer_comment"),
+            status=JobStatus.unknown,
+            confidence=Confidence.high if not missing else Confidence.medium,
+            missing_required_fields=missing,
+            needs_review=bool(missing),
+            review_reason="Missing template fields" if missing else None,
+        ), "local_new"
+
+    # Acceptance/status messages are not new orders and must never be duplicated on the site.
+    compact = " ".join(message_text.split()).casefold()
+    if re.search(r"заявк\w*.*(?:принят\w*|в\s+работе|ещ[её]\s+не\s+закрыт\w*)", compact):
+        return _unknown_job("job status notification"), "local_status"
+
+    operational_markers = re.search(
+        r"заяв|заказ|эваку|откуда|куда|закры\w*|выполн|дов[её]з|сдал|"
+        r"отработал|ложн\w*\s+подач|мкад|госномер",
+        lower,
+    )
+    if not operational_markers:
+        return _unknown_job("non-operational chat message"), "local_irrelevant"
+
+    return None, "yandex"
 
 
 def extract_job(message_text: str, sender_name: str = "") -> ExtractedJob:
@@ -159,6 +276,17 @@ def extract_job(message_text: str, sender_name: str = "") -> ExtractedJob:
     Extract structured job data from a raw employee message using YandexGPT.
     Returns ExtractedJob with null fields where information is missing.
     """
+    local_job, source = _local_extraction(message_text)
+    if local_job is not None:
+        log.info(
+            "EXTRACTED | source=%s | is_closed=%s | is_new=%s | plate=%s",
+            source,
+            local_job.is_closed_job_report,
+            local_job.is_new_job_request,
+            local_job.license_plate,
+        )
+        return local_job
+
     from webhook.config import settings
 
     if not settings.yandex_api_key:
@@ -176,7 +304,7 @@ def extract_job(message_text: str, sender_name: str = "") -> ExtractedJob:
         "completionOptions": {
             "stream": False,
             "temperature": 0.0,
-            "maxTokens": 1000,
+            "maxTokens": 700,
         },
         "messages": [
             {"role": "system", "text": SYSTEM_PROMPT},
@@ -210,7 +338,7 @@ def extract_job(message_text: str, sender_name: str = "") -> ExtractedJob:
         job = job.model_copy(update=explicit)
 
     log.info(
-        "EXTRACTED | is_closed=%s | is_new=%s | plate=%s | make=%s %s | status=%s | confidence=%s | needs_review=%s | missing=%s",
+        "EXTRACTED | source=yandex | is_closed=%s | is_new=%s | plate=%s | make=%s %s | status=%s | confidence=%s | needs_review=%s | missing=%s",
         job.is_closed_job_report,
         job.is_new_job_request,
         job.license_plate,
