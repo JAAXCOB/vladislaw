@@ -23,7 +23,12 @@ from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
 from webhook.open_jobs_tracker import OpenJobsTracker
 from webhook.payroll_writer import append_salary_row
-from webhook.reporting_rules import (\n    employee_header,\n    is_bot_generated_message,\n    parse_explicit_closed_report,\n    report_is_writable,\n)
+from webhook.reporting_rules import (
+    employee_header,
+    is_bot_generated_message,
+    parse_explicit_closed_report,
+    report_is_writable,
+)
 
 # ---------------------------------------------------------------------------
 # Logging
