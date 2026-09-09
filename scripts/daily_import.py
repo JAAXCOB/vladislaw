@@ -45,7 +45,7 @@ from webhook.extractor import extract_job
 from webhook.max_client import send_message
 from webhook.models import Message
 from webhook.open_jobs_tracker import OpenJobsTracker
-from webhook.payroll_writer import append_salary_row
+from webhook.payroll_writer import append_salary_row\nfrom webhook.reporting_rules import is_bot_generated_message
 
 STATE_PATH = Path(__file__).parent.parent / "data" / "import_state.json"
 MAX_PROCESSED_MIDS = 2000
@@ -193,6 +193,11 @@ def main() -> None:
         employee_name = message.effective_sender_name()
 
         if not mid:
+            continue
+
+        if is_bot_generated_message(text or "", bool(message.sender and message.sender.is_bot)):
+            processed_mids.add(mid)
+            message_fingerprints[mid] = text_fingerprint(text or "")
             continue
 
         fingerprint = text_fingerprint(text or "")
