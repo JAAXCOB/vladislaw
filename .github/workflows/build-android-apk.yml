@@ -1,0 +1,44 @@
+name: Build AV Rescue Android APK
+
+on:
+  push:
+    branches:
+      - android-build-2.1.1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Unpack latest Android source
+        run: unzip -q android-build/AVRescueAndroid_2.1.1_source.zip -d android-build/source
+      - name: Build debug APK
+        working-directory: android-build/source/release_2_1_1/ANDROID/AVRescueAndroid
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon clean assembleDebug
+      - name: Prepare driver APK
+        run: |
+          cp android-build/source/release_2_1_1/ANDROID/AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk AV_Rescue_Driver_2.1.1.apk
+          sha256sum AV_Rescue_Driver_2.1.1.apk > AV_Rescue_Driver_2.1.1.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AV_Rescue_Driver_2.1.1
+          path: |
+            AV_Rescue_Driver_2.1.1.apk
+            AV_Rescue_Driver_2.1.1.sha256
+          if-no-files-found: error
+          retention-days: 7
