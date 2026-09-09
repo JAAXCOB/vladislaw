@@ -23,7 +23,7 @@ from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
 from webhook.open_jobs_tracker import OpenJobsTracker
 from webhook.payroll_writer import append_salary_row
-from webhook.reporting_rules import employee_header, parse_explicit_closed_report, report_is_writable
+from webhook.reporting_rules import (\n    employee_header,\n    is_bot_generated_message,\n    parse_explicit_closed_report,\n    report_is_writable,\n)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -226,16 +226,19 @@ async def webhook(
         if configured_chat and str(chat_id) != configured_chat:
             log.info("Ignoring message from chat %s (configured chat: %s)", chat_id, configured_chat)
         elif text:
-            employee_name = msg.effective_sender_name()
-            background_tasks.add_task(
-                process_message,
-                text,
-                sender_name,
-                employee_name,
-                update.timestamp,
-                chat_id,
-                mid,
-            )
+            if is_bot_generated_message(text, bool(msg.sender and msg.sender.is_bot)):
+                log.info("Ignoring bot-generated MAX message | mid=%s", mid)
+            else:
+                employee_name = msg.effective_sender_name()
+                background_tasks.add_task(
+                    process_message,
+                    text,
+                    sender_name,
+                    employee_name,
+                    update.timestamp,
+                    chat_id,
+                    mid,
+                )
     else:
         log.info("UPDATE type=%s | timestamp=%s", update.update_type, update.timestamp)
 
