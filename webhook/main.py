@@ -23,6 +23,7 @@ from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
 from webhook.open_jobs_tracker import OpenJobsTracker
 from webhook.payroll_writer import append_salary_row
+from webhook.reporting_rules import employee_header, parse_explicit_closed_report, report_is_writable
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -47,6 +48,7 @@ log = logging.getLogger("max_webhook")
 
 app = FastAPI(title="MAX Webhook", version="0.4.0")
 _open_jobs_lock = threading.Lock()
+_excel_write_lock = threading.Lock()
 
 
 @app.get("/health")
@@ -93,6 +95,10 @@ def process_message(
         log.exception("Extraction failed for message: %r", text)
         return
 
+    deterministic_report = parse_explicit_closed_report(text)
+    if deterministic_report is not None:
+        job = deterministic_report
+
     if chat_id is not None and job.license_plate and (job.is_new_job_request or job.is_closed_job_report):
         try:
             with _open_jobs_lock:
@@ -115,34 +121,48 @@ def process_message(
         log.info("Message does not report a closed job — skipping Excel: %r", text)
         return
 
-    if not settings.excel_file_path:
-        log.warning("EXCEL_FILE_PATH not set — skipping Excel write")
+    if not report_is_writable(job):
+        log.warning(
+            "Closed message rejected for Excel: a plate, services and positive amount are required | mid=%s",
+            message_id,
+        )
         return
 
-    try:
-        sheet, inserted = append_job(settings.excel_file_path, job, timestamp_ms, text)
-        if inserted:
-            log.info("Written to sheet '%s' (needs_review=%s)", sheet, job.needs_review)
+    with _excel_write_lock:
+        if settings.excel_file_path:
+            try:
+                sheet, inserted = append_job(settings.excel_file_path, job, timestamp_ms, text)
+                if inserted:
+                    log.info("Written to sheet '%s' (needs_review=%s)", sheet, job.needs_review)
+                else:
+                    log.info("Duplicate already exists in sheet '%s' — skipped", sheet)
+            except Exception:
+                log.exception("Failed to write to Excel for message: %r", text)
         else:
-            log.info("Duplicate already exists in sheet '%s' — skipped", sheet)
-    except Exception:
-        log.exception("Failed to write to Excel for message: %r", text)
-        return
+            log.warning("EXCEL_FILE_PATH not set — skipping evacuation report")
 
-    if settings.payroll_file_path:
-        try:
-            payroll_sheet, matched, inserted = append_salary_row(
-                settings.payroll_file_path, job, timestamp_ms, employee_name, text
-            )
-            log.info(
-                "Payroll sheet '%s' (employee=%s, matched=%s, inserted=%s)",
-                payroll_sheet,
-                employee_name,
-                matched,
-                inserted,
-            )
-        except Exception:
-            log.exception("Failed to write to payroll file for message: %r", text)
+        # Payroll is independent: an error in the ordinary report must never
+        # prevent the employee amount from being recorded.
+        if settings.payroll_file_path:
+            try:
+                payroll_sheet, matched, inserted = append_salary_row(
+                    settings.payroll_file_path,
+                    job,
+                    timestamp_ms,
+                    employee_header(employee_name),
+                    text,
+                )
+                log.info(
+                    "Payroll sheet '%s' (employee=%s, matched=%s, inserted=%s)",
+                    payroll_sheet,
+                    employee_name,
+                    matched,
+                    inserted,
+                )
+            except Exception:
+                log.exception("Failed to write to payroll file for message: %r", text)
+        else:
+            log.warning("PAYROLL_FILE_PATH not set — skipping payroll report")
 
 
 @app.post("/webhook", status_code=status.HTTP_200_OK)
