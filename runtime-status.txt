@@ -1,10 +1,10 @@
 SAFE_DIAGNOSTICS_BEGIN
-max_messages_today=98
-last_max_messages_today_at=2026-09-09T16:08:31.799071+00:00
-non_closed_messages_today=85
-last_non_closed_messages_today_at=2026-09-09T16:08:35.883737+00:00
-partner_upserts_today=11
-last_partner_upserts_today_at=2026-09-09T16:08:35.882632+00:00
+max_messages_today=103
+last_max_messages_today_at=2026-09-09T16:12:50.798537+00:00
+non_closed_messages_today=89
+last_non_closed_messages_today_at=2026-09-09T16:12:53.509482+00:00
+partner_upserts_today=13
+last_partner_upserts_today_at=2026-09-09T16:12:13.458809+00:00
 partner_closes_today=16
 last_partner_closes_today_at=2026-09-09T15:34:33.937737+00:00
 sync_failures_today=0
@@ -16,7 +16,7 @@ last_excel_writes_today_at=2026-09-09T15:34:35.642752+00:00
 excel_duplicates_today=2
 last_excel_duplicates_today_at=2026-09-09T13:08:13.754568+00:00
 partner_sync_queue=0
-tracked_open_jobs=6
+tracked_open_jobs=8
 excel_failure_types=
 SAFE_DIAGNOSTICS_END
-checked_at_utc=2026-09-09T16:10:51Z
+checked_at_utc=2026-09-09T16:23:15Z
