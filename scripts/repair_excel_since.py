@@ -218,6 +218,7 @@ def main() -> None:
     parser.add_argument("--excel-path", default=os.getenv("EXCEL_FILE_PATH", ""))
     parser.add_argument("--payroll-path", default=os.getenv("PAYROLL_FILE_PATH", ""))
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--quiet", action="store_true", help="Print counters only, not row details")
     args = parser.parse_args()
 
     since_dt = datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=MOSCOW_TZ)
@@ -252,7 +253,10 @@ def main() -> None:
             for record in records
         ],
     }
-    print(json.dumps(preview, ensure_ascii=False, indent=2))
+    if args.quiet:
+        print(json.dumps({key: value for key, value in preview.items() if key != "rows"}, ensure_ascii=False))
+    else:
+        print(json.dumps(preview, ensure_ascii=False, indent=2))
     if not args.apply:
         return
 
