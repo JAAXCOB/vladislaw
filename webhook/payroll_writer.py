@@ -39,7 +39,7 @@ MONTH_NAMES = {
     9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
 }
 
-FIXED_COLUMNS = {"Дата", "VIN/Гос.номер ТС", "Услуга"}
+FIXED_COLUMNS = {"Дата", "VIN/Гос.номер ТС", "Услуга", "Сумма"}
 
 DEFAULT_FONT = Font(name="Calibri", size=11)
 CENTER_ALIGN = Alignment(horizontal="center")
