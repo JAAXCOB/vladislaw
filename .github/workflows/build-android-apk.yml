@@ -22,22 +22,24 @@ jobs:
       - uses: android-actions/setup-android@v3
       - name: Install Android SDK 36
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-      - name: Unpack latest Android source
-        run: unzip -q android-build/AVRescueAndroid_2.1.3_source.zip -d android-build/source
+      - name: Unpack Android 2.1.4 source
+        run: |
+          mkdir -p android-build/source-2.1.4
+          unzip -q android-build/AVRescueAndroid_2.1.4_source.zip -d android-build/source-2.1.4
       - name: Build debug APK
-        working-directory: android-build/source/release_2_1_3/ANDROID/AVRescueAndroid
+        working-directory: android-build/source-2.1.4
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon clean assembleDebug
       - name: Prepare driver APK
         run: |
-          cp android-build/source/release_2_1_3/ANDROID/AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk AV_Rescue_Driver_2.1.3.apk
-          sha256sum AV_Rescue_Driver_2.1.3.apk > AV_Rescue_Driver_2.1.3.sha256
+          cp android-build/source-2.1.4/app/build/outputs/apk/debug/app-debug.apk AV_Rescue_Driver_2.1.4.apk
+          sha256sum AV_Rescue_Driver_2.1.4.apk > AV_Rescue_Driver_2.1.4.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: AV_Rescue_Driver_2.1.3
+          name: AV_Rescue_Driver_2.1.4
           path: |
-            AV_Rescue_Driver_2.1.3.apk
-            AV_Rescue_Driver_2.1.3.sha256
+            AV_Rescue_Driver_2.1.4.apk
+            AV_Rescue_Driver_2.1.4.sha256
           if-no-files-found: error
           retention-days: 7
