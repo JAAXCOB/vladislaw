@@ -45,7 +45,8 @@ from webhook.extractor import extract_job
 from webhook.max_client import send_message
 from webhook.models import Message
 from webhook.open_jobs_tracker import OpenJobsTracker
-from webhook.payroll_writer import append_salary_row\nfrom webhook.reporting_rules import is_bot_generated_message
+from webhook.payroll_writer import append_salary_row
+from webhook.reporting_rules import is_bot_generated_message
 
 STATE_PATH = Path(__file__).parent.parent / "data" / "import_state.json"
 MAX_PROCESSED_MIDS = 2000
