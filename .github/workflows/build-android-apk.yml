@@ -22,24 +22,24 @@ jobs:
       - uses: android-actions/setup-android@v3
       - name: Install Android SDK 36
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-      - name: Unpack Android 2.1.4 source
+      - name: Unpack Android 2.1.5 source
         run: |
-          mkdir -p android-build/source-2.1.4
-          unzip -q android-build/AVRescueAndroid_2.1.4_source.zip -d android-build/source-2.1.4
+          mkdir -p android-build/source-2.1.5
+          unzip -q android-build/AVRescueAndroid_2.1.5_source.zip -d android-build/source-2.1.5
       - name: Build debug APK
-        working-directory: android-build/source-2.1.4
+        working-directory: android-build/source-2.1.5
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon clean assembleDebug
       - name: Prepare driver APK
         run: |
-          cp android-build/source-2.1.4/app/build/outputs/apk/debug/app-debug.apk AV_Rescue_Driver_2.1.4.apk
-          sha256sum AV_Rescue_Driver_2.1.4.apk > AV_Rescue_Driver_2.1.4.sha256
+          cp android-build/source-2.1.5/app/build/outputs/apk/debug/app-debug.apk AV_Rescue_Driver_2.1.5.apk
+          sha256sum AV_Rescue_Driver_2.1.5.apk > AV_Rescue_Driver_2.1.5.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: AV_Rescue_Driver_2.1.4
+          name: AV_Rescue_Driver_2.1.5
           path: |
-            AV_Rescue_Driver_2.1.4.apk
-            AV_Rescue_Driver_2.1.4.sha256
+            AV_Rescue_Driver_2.1.5.apk
+            AV_Rescue_Driver_2.1.5.sha256
           if-no-files-found: error
           retention-days: 7
