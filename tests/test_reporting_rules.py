@@ -33,3 +33,6 @@ def test_employee_aliases_match_payroll_headers():
     assert employee_header("Валера") == "Баранов Валерий Валера"
     assert employee_header("G") == "Баширов Гоша G"
     assert employee_header("Шмэкс") == "Максим Шмэкс"
+    assert employee_header("Антон") == "Буревич Антон"
+    assert employee_header("Буревич Антон") == "Буревич Антон"
+    assert employee_header("Anton") == "Буревич Антон"
