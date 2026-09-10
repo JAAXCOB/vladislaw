@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - android-build-2.1.1
+  workflow_dispatch:
 
 jobs:
   build:
@@ -30,7 +31,7 @@ jobs:
       - name: Name APK files
         run: |
           mkdir -p ready-apk
-          cp android-test-build/AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk ready-apk/AV_Rescue_Driver_2.3.1.apk
+          cp android-test-build/AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk ready-apk/AVR_Driver_2.3.2.apk
           cp android-test-build/AVRescueClientAndroid/app/build/outputs/apk/debug/app-debug.apk ready-apk/AV_Rescue_Client_1.0.0.apk
       - uses: actions/upload-artifact@v4
         with:
