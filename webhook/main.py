@@ -9,8 +9,6 @@ import json
 import logging
 import secrets
 import sys
-import threading
-from pathlib import Path
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
@@ -21,14 +19,7 @@ from webhook.av_rescue_client import sync_extracted_job
 from webhook.excel_writer import append_job
 from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
-from webhook.open_jobs_tracker import OpenJobsTracker
-from webhook.payroll_writer import append_salary_row
-from webhook.reporting_rules import (
-    employee_header,
-    is_bot_generated_message,
-    parse_explicit_closed_report,
-    report_is_writable,
-)
+from webhook.payroll_writer import append_salary_row, ensure_employee_column
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -51,35 +42,30 @@ log = logging.getLogger("max_webhook")
 # App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="MAX Webhook", version="0.4.0")
-_open_jobs_lock = threading.Lock()
-_excel_write_lock = threading.Lock()
+app = FastAPI(title="MAX Webhook", version="0.3.0")
+
+
+@app.on_event("startup")
+def ensure_payroll_structure() -> None:
+    """Apply safe, idempotent payroll schema updates before accepting events."""
+    if not settings.payroll_file_path:
+        log.warning("PAYROLL_FILE_PATH not set — payroll structure was not checked")
+        return
+    sheet, column, created = ensure_employee_column(
+        settings.payroll_file_path,
+        "Буревич Антон",
+    )
+    log.info(
+        "Payroll employee column ready | sheet='%s' | column=%d | created=%s",
+        sheet,
+        column,
+        created,
+    )
 
 
 @app.get("/health")
-async def health() -> dict[str, Any]:
-    queue_path = Path(settings.av_rescue_sync_queue_path)
-    if not queue_path.is_absolute():
-        queue_path = Path(__file__).resolve().parent.parent / queue_path
-    try:
-        queue_data = json.loads(queue_path.read_text(encoding="utf-8")) if queue_path.exists() else []
-        queue_count = len(queue_data) if isinstance(queue_data, list) else 0
-    except Exception:
-        queue_count = -1
-
-    try:
-        tracked_open_jobs = len(OpenJobsTracker(settings.max_chat_id).list_open_jobs()) if settings.max_chat_id else 0
-    except Exception:
-        tracked_open_jobs = -1
-
-    return {
-        "status": "ok",
-        "av_rescue": "configured"
-        if settings.av_rescue_api_url and settings.av_rescue_api_key
-        else "not_configured",
-        "partner_sync_queue": queue_count,
-        "tracked_open_jobs": tracked_open_jobs,
-    }
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 def process_message(
@@ -100,22 +86,6 @@ def process_message(
         log.exception("Extraction failed for message: %r", text)
         return
 
-    deterministic_report = parse_explicit_closed_report(text)
-    if deterministic_report is not None:
-        job = deterministic_report
-
-    if chat_id is not None and job.license_plate and (job.is_new_job_request or job.is_closed_job_report):
-        try:
-            with _open_jobs_lock:
-                tracker = OpenJobsTracker(str(chat_id))
-                if job.is_closed_job_report:
-                    tracker.mark_closed(job.license_plate)
-                else:
-                    tracker.register_new_job(job.license_plate, message_id or "", text)
-                tracker.save()
-        except Exception:
-            log.exception("Open-job tracking failed")
-
     try:
         sync_extracted_job(job, chat_id, message_id, text)
     except Exception:
@@ -126,48 +96,34 @@ def process_message(
         log.info("Message does not report a closed job — skipping Excel: %r", text)
         return
 
-    if not report_is_writable(job):
-        log.warning(
-            "Closed message rejected for Excel: a plate, services and positive amount are required | mid=%s",
-            message_id,
-        )
+    if not settings.excel_file_path:
+        log.warning("EXCEL_FILE_PATH not set — skipping Excel write")
         return
 
-    with _excel_write_lock:
-        if settings.excel_file_path:
-            try:
-                sheet, inserted = append_job(settings.excel_file_path, job, timestamp_ms, text)
-                if inserted:
-                    log.info("Written to sheet '%s' (needs_review=%s)", sheet, job.needs_review)
-                else:
-                    log.info("Duplicate already exists in sheet '%s' — skipped", sheet)
-            except Exception:
-                log.exception("Failed to write to Excel for message: %r", text)
+    try:
+        sheet, inserted = append_job(settings.excel_file_path, job, timestamp_ms, text)
+        if inserted:
+            log.info("Written to sheet '%s' (needs_review=%s)", sheet, job.needs_review)
         else:
-            log.warning("EXCEL_FILE_PATH not set — skipping evacuation report")
+            log.info("Duplicate already exists in sheet '%s' — skipped", sheet)
+    except Exception:
+        log.exception("Failed to write to Excel for message: %r", text)
+        return
 
-        # Payroll is independent: an error in the ordinary report must never
-        # prevent the employee amount from being recorded.
-        if settings.payroll_file_path:
-            try:
-                payroll_sheet, matched, inserted = append_salary_row(
-                    settings.payroll_file_path,
-                    job,
-                    timestamp_ms,
-                    employee_header(employee_name),
-                    text,
-                )
-                log.info(
-                    "Payroll sheet '%s' (employee=%s, matched=%s, inserted=%s)",
-                    payroll_sheet,
-                    employee_name,
-                    matched,
-                    inserted,
-                )
-            except Exception:
-                log.exception("Failed to write to payroll file for message: %r", text)
-        else:
-            log.warning("PAYROLL_FILE_PATH not set — skipping payroll report")
+    if settings.payroll_file_path:
+        try:
+            payroll_sheet, matched, inserted = append_salary_row(
+                settings.payroll_file_path, job, timestamp_ms, employee_name, text
+            )
+            log.info(
+                "Payroll sheet '%s' (employee=%s, matched=%s, inserted=%s)",
+                payroll_sheet,
+                employee_name,
+                matched,
+                inserted,
+            )
+        except Exception:
+            log.exception("Failed to write to payroll file for message: %r", text)
 
 
 @app.post("/webhook", status_code=status.HTTP_200_OK)
@@ -231,19 +187,16 @@ async def webhook(
         if configured_chat and str(chat_id) != configured_chat:
             log.info("Ignoring message from chat %s (configured chat: %s)", chat_id, configured_chat)
         elif text:
-            if is_bot_generated_message(text, bool(msg.sender and msg.sender.is_bot)):
-                log.info("Ignoring bot-generated MAX message | mid=%s", mid)
-            else:
-                employee_name = msg.effective_sender_name()
-                background_tasks.add_task(
-                    process_message,
-                    text,
-                    sender_name,
-                    employee_name,
-                    update.timestamp,
-                    chat_id,
-                    mid,
-                )
+            employee_name = msg.effective_sender_name()
+            background_tasks.add_task(
+                process_message,
+                text,
+                sender_name,
+                employee_name,
+                update.timestamp,
+                chat_id,
+                mid,
+            )
     else:
         log.info("UPDATE type=%s | timestamp=%s", update.update_type, update.timestamp)
 

@@ -162,6 +162,88 @@ def _match_employee_column(ws: Worksheet, employee_name: str) -> Optional[int]:
     return None
 
 
+def ensure_employee_column(
+    payroll_path: str | Path,
+    employee_name: str,
+    at: datetime | None = None,
+) -> tuple[str, int, bool]:
+    """Ensure that the shared current-month sheet has one employee column.
+
+    The new column is appended at the end so existing cells, formulas and
+    historical payroll rows are never shifted. Repeated calls are safe.
+    Returns (sheet_name, column_index, created).
+    """
+    path = Path(payroll_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Payroll file not found: {path}")
+
+    normalized_name = (employee_name or "").strip()
+    if not normalized_name:
+        raise ValueError("Employee name cannot be empty")
+
+    dt = at.astimezone(MOSCOW_TZ) if at is not None else datetime.now(MOSCOW_TZ)
+    sheet_name = _sheet_name(dt)
+    wb = openpyxl.load_workbook(path)
+    ws = _get_or_create_sheet(wb, sheet_name, path)
+
+    matches = [
+        col
+        for col, header in _employee_columns(ws).items()
+        if header.casefold() == normalized_name.casefold()
+    ]
+    if len(matches) > 1:
+        raise ValueError(
+            f"Duplicate employee columns for '{normalized_name}' in sheet '{sheet_name}'"
+        )
+    if matches:
+        return sheet_name, matches[0], False
+
+    employee_columns = _employee_columns(ws)
+    if not employee_columns:
+        raise ValueError(f"Wrong workbook configured as payroll report: {path.name}")
+
+    source_col = max(employee_columns)
+    target_col = ws.max_column + 1
+    source = ws.cell(row=1, column=source_col)
+    target = ws.cell(row=1, column=target_col)
+    target.value = normalized_name
+    if source.has_style:
+        target.font = copy(source.font)
+        target.alignment = copy(source.alignment)
+        target.fill = copy(source.fill)
+        target.border = copy(source.border)
+        target.number_format = source.number_format
+
+    source_letter = source.column_letter
+    target_letter = target.column_letter
+    ws.column_dimensions[target_letter].width = ws.column_dimensions[source_letter].width
+    wb.save(path)
+
+    # Verify the persisted workbook before reporting success.
+    check_wb = openpyxl.load_workbook(path, read_only=True, data_only=False)
+    check_ws = check_wb[sheet_name]
+    saved_matches = [
+        col
+        for col in range(1, check_ws.max_column + 1)
+        if isinstance(check_ws.cell(row=1, column=col).value, str)
+        and check_ws.cell(row=1, column=col).value.strip().casefold()
+        == normalized_name.casefold()
+    ]
+    check_wb.close()
+    if saved_matches != [target_col]:
+        raise RuntimeError(
+            f"Employee column verification failed for '{normalized_name}' in '{sheet_name}'"
+        )
+
+    log.info(
+        "Added payroll employee column | sheet='%s' | column=%d | employee=%s",
+        sheet_name,
+        target_col,
+        normalized_name,
+    )
+    return sheet_name, target_col, True
+
+
 def _find_duplicate_row(
     ws: Worksheet,
     job_date,
