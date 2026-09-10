@@ -24,22 +24,27 @@ jobs:
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - name: Unpack Android 2.1.5 source
         run: |
-          mkdir -p android-build/source-2.1.5
-          unzip -q android-build/AVRescueAndroid_2.1.5_source.zip -d android-build/source-2.1.5
+          mkdir -p android-build/source-2.1.6
+          unzip -q android-build/AVRescueAndroid_2.1.5_source.zip -d android-build/source-2.1.6
+      - name: Apply Android 2.1.6 moderation update
+        run: |
+          cp android-build/overrides-2.1.6/app/build.gradle android-build/source-2.1.6/app/build.gradle
+          cp android-build/overrides-2.1.6/app/src/main/java/ru/avrescue/app/ApiClient.java android-build/source-2.1.6/app/src/main/java/ru/avrescue/app/ApiClient.java
+          cp android-build/overrides-2.1.6/app/src/main/java/ru/avrescue/app/DashboardActivity.java android-build/source-2.1.6/app/src/main/java/ru/avrescue/app/DashboardActivity.java
       - name: Build debug APK
-        working-directory: android-build/source-2.1.5
+        working-directory: android-build/source-2.1.6
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon clean assembleDebug
       - name: Prepare driver APK
         run: |
-          cp android-build/source-2.1.5/app/build/outputs/apk/debug/app-debug.apk AV_Rescue_Driver_2.1.5.apk
-          sha256sum AV_Rescue_Driver_2.1.5.apk > AV_Rescue_Driver_2.1.5.sha256
+          cp android-build/source-2.1.6/app/build/outputs/apk/debug/app-debug.apk AV_Rescue_Driver_2.1.6.apk
+          sha256sum AV_Rescue_Driver_2.1.6.apk > AV_Rescue_Driver_2.1.6.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: AV_Rescue_Driver_2.1.5
+          name: AV_Rescue_Driver_2.1.6
           path: |
-            AV_Rescue_Driver_2.1.5.apk
-            AV_Rescue_Driver_2.1.5.sha256
+            AV_Rescue_Driver_2.1.6.apk
+            AV_Rescue_Driver_2.1.6.sha256
           if-no-files-found: error
           retention-days: 7
