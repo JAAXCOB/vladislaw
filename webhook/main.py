@@ -20,6 +20,7 @@ from webhook.excel_writer import append_job
 from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
 from webhook.payroll_writer import append_salary_row, ensure_employee_column
+from webhook.reporting_rules import employee_header
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -51,16 +52,18 @@ def ensure_payroll_structure() -> None:
     if not settings.payroll_file_path:
         log.warning("PAYROLL_FILE_PATH not set — payroll structure was not checked")
         return
-    sheet, column, created = ensure_employee_column(
-        settings.payroll_file_path,
-        "Буревич Антон",
-    )
-    log.info(
-        "Payroll employee column ready | sheet='%s' | column=%d | created=%s",
-        sheet,
-        column,
-        created,
-    )
+    for employee_name in ("Буревич Антон", "Николай Большаков"):
+        sheet, column, created = ensure_employee_column(
+            settings.payroll_file_path,
+            employee_name,
+        )
+        log.info(
+            "Payroll employee column ready | sheet='%s' | column=%d | created=%s | employee=%s",
+            sheet,
+            column,
+            created,
+            employee_name,
+        )
 
 
 @app.get("/health")
@@ -113,7 +116,11 @@ def process_message(
     if settings.payroll_file_path:
         try:
             payroll_sheet, matched, inserted = append_salary_row(
-                settings.payroll_file_path, job, timestamp_ms, employee_name, text
+                settings.payroll_file_path,
+                job,
+                timestamp_ms,
+                employee_header(employee_name),
+                text,
             )
             log.info(
                 "Payroll sheet '%s' (employee=%s, matched=%s, inserted=%s)",
