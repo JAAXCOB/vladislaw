@@ -40,7 +40,7 @@ function av_alfa_sync_order(&$order){
  if(empty($response['ok']))return $response;$data=$response['data'];$status=(int)($data['orderStatus']??$data['OrderStatus']??-1);$name=av_alfa_status_name($status);$previous=$order['payment_status']??'';
  $order['payment_provider']='alfa';$order['payment_status']=$name;$order['payment_updated_at']=date('c');$order['alfa_status_code']=$status;
  $paidAmount=(float)($data['paymentAmountInfo']['paymentState']??0);if(isset($data['amount']))$paidAmount=(float)$data['amount'];elseif(isset($data['Amount']))$paidAmount=(float)$data['Amount'];
- if($name==='paid'){$order['paid_at']=$order['paid_at']??date('c');$order['paid_amount']=round($paidAmount/100,2);}
+ if($name==='paid'){$order['paid_at']=$order['paid_at']??date('c');$order['paid_amount']=round($paidAmount/100,2);if(in_array($order['status']??'',array('done','completed'),true))av_post_order_finance($order);}
  if($name!==$previous&&in_array($name,array('paid','refunded','reversed','declined'),true))av_order_event($order,'payment_'.$name,'Альфа-Банк: '.$name);
  return array('ok'=>true,'status'=>$name,'status_code'=>$status,'paid_amount'=>$order['paid_amount']??0);
 }
