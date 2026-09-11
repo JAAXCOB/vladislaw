@@ -16,11 +16,16 @@ from typing import Optional
 STATE_PATH = Path(__file__).parent.parent / "data" / "open_jobs_state.json"
 
 
+CYRILLIC_PLATE_CHARS = str.maketrans({
+    "A": "А", "B": "В", "E": "Е", "K": "К", "M": "М", "H": "Н",
+    "O": "О", "P": "Р", "C": "С", "T": "Т", "Y": "У", "X": "Х",
+})
+
+
 def normalize_plate(plate: str) -> str:
-    """Uppercase, strip all whitespace — defensive re-normalization in
-    case the model formats a plate slightly differently across two
-    separate extraction calls (new-job message vs closed-job message)."""
-    return re.sub(r"\s+", "", plate.strip().upper())
+    """Normalize whitespace, case and Latin/Cyrillic lookalikes."""
+    compact = re.sub(r"\s+", "", plate.strip().upper())
+    return compact.translate(CYRILLIC_PLATE_CHARS)
 
 
 def _load_all() -> dict:
@@ -60,6 +65,16 @@ class OpenJobsTracker:
         self.chat_id = str(chat_id)
         self._data = _load_all()
         self._chat = _chat_state(self._data, self.chat_id)
+        # Migrate legacy keys that may contain Latin lookalikes. This also
+        # collapses duplicate Cyrillic/Latin variants into one tracked job.
+        migrated: dict[str, dict] = {}
+        for old_key, job in self._chat["open_jobs"].items():
+            key = normalize_plate(str(job.get("plate") or old_key))
+            if not key:
+                key = normalize_plate(str(old_key)) or str(old_key)
+            migrated.setdefault(key, job)
+            migrated[key]["plate"] = key
+        self._chat["open_jobs"] = migrated
         self.current_run = self._chat["run_counter"]  # set properly in start_run()
 
     def start_run(self) -> None:
@@ -80,7 +95,12 @@ class OpenJobsTracker:
 
     def mark_closed(self, plate: str) -> None:
         key = normalize_plate(plate)
-        self._chat["open_jobs"].pop(key, None)
+        if not key:
+            return
+        for existing_key, job in list(self._chat["open_jobs"].items()):
+            job_key = normalize_plate(str(job.get("plate") or existing_key))
+            if normalize_plate(str(existing_key)) == key or job_key == key:
+                self._chat["open_jobs"].pop(existing_key, None)
 
     def list_open_jobs(self) -> list[dict]:
         """All currently tracked jobs, regardless of grace period."""

@@ -66,7 +66,7 @@ jobs:
              python3 -m venv .venv
              .venv/bin/python -m pip install --upgrade pip
              .venv/bin/pip install -r requirements.txt
-             .venv/bin/pytest -q tests/test_webhook.py::test_structured_partner_request_fields
+             .venv/bin/pytest -q tests/test_open_jobs_tracker.py tests/test_webhook.py::test_structured_partner_request_fields
 
              install -d -m 0755 /opt/vladislaw/data/excel
 
@@ -136,6 +136,7 @@ jobs:
              done
              .venv/bin/python scripts/register_webhook.py
 
+             .venv/bin/python scripts/reconcile_closed_jobs.py --hours 72
              .venv/bin/python scripts/safe_diagnostics.py
 
              systemctl status max-webhook.service --no-pager -l
