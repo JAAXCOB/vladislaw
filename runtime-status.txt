@@ -20,3 +20,4 @@ tracked_open_jobs=3
 excel_failure_types=
 SAFE_DIAGNOSTICS_END
 checked_at_utc=2026-09-11T08:30:03Z
+manual_deploy_request=2026-09-11T08:40:00Z
