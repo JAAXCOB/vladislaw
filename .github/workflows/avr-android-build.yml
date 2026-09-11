@@ -1,4 +1,4 @@
-name: Build AVR Android 2.3.3
+name: Build AVR Android 2.3.4
 
 on:
   push:
@@ -62,20 +62,20 @@ jobs:
       - name: Collect APKs
         run: |
           mkdir artifacts
-          cp AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AVR_Driver_2.3.3.apk
-          cp AVRescueClientAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AV_Rescue_Client_1.0.1.apk
+          cp AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AVR_Driver_2.3.4.apk
+          cp AVRescueClientAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AV_Rescue_Client_1.0.2.apk
       - name: Save APK delivery files
         run: |
           mkdir -p ci/apks
-          base64 -w0 artifacts/AVR_Driver_2.3.3.apk > ci/apks/AVR_Driver_2.3.3.apk.b64
-          base64 -w0 artifacts/AV_Rescue_Client_1.0.1.apk > ci/apks/AV_Rescue_Client_1.0.1.apk.b64
+          base64 -w0 artifacts/AVR_Driver_2.3.4.apk > ci/apks/AVR_Driver_2.3.4.apk.b64
+          base64 -w0 artifacts/AV_Rescue_Client_1.0.2.apk > ci/apks/AV_Rescue_Client_1.0.2.apk.b64
           git config user.name avr-build
           git config user.email avrdriver@yandex.ru
           git add ci/apks
-          git commit -m '[skip ci] Save AVR Android 2.3.3 APKs'
+          git commit -m '[skip ci] Save AVR Android 2.3.4 APKs'
           git push
       - uses: actions/upload-artifact@v4
         with:
-          name: AV-Rescue-Android-2.3.3
+          name: AV-Rescue-Android-2.3.4
           path: artifacts/*.apk
           retention-days: 30
