@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -22,11 +24,33 @@ jobs:
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - name: Build Driver
-        working-directory: AVRescueAndroid
-        run: chmod +x gradlew && ./gradlew clean assembleDebug --no-daemon
+        run: |
+          set +e
+          cd AVRescueAndroid
+          chmod +x gradlew
+          ./gradlew clean assembleDebug --no-daemon > ../driver-build.log 2>&1
+          echo $? > ../driver-exit
+          exit 0
       - name: Build Client
-        working-directory: AVRescueClientAndroid
-        run: chmod +x gradlew && ./gradlew clean assembleDebug --no-daemon
+        run: |
+          set +e
+          cd AVRescueClientAndroid
+          chmod +x gradlew
+          ./gradlew clean assembleDebug --no-daemon > ../client-build.log 2>&1
+          echo $? > ../client-exit
+          exit 0
+      - name: Publish diagnostics on failure
+        run: |
+          if [ "$(cat driver-exit)" != 0 ] || [ "$(cat client-exit)" != 0 ]; then
+            git config user.name avr-build
+            git config user.email avrdriver@yandex.ru
+            mkdir -p ci/build-logs
+            cp driver-build.log client-build.log ci/build-logs/
+            git add ci/build-logs
+            git commit -m '[skip ci] Save Android build diagnostics'
+            git push
+            exit 1
+          fi
       - name: Collect APKs
         run: |
           mkdir artifacts
