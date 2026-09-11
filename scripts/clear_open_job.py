@@ -58,15 +58,21 @@ def main() -> None:
         print(f"Снято с отслеживания: {len(open_jobs)} заявок.")
         return
 
-    plate = args[0]
-    before = len(tracker.list_open_jobs())
-    tracker.mark_closed(plate)
+    removed: list[str] = []
+    missing: list[str] = []
+    for plate in args:
+        before = len(tracker.list_open_jobs())
+        tracker.mark_closed(plate)
+        after = len(tracker.list_open_jobs())
+        if after < before:
+            removed.append(plate)
+        else:
+            missing.append(plate)
     tracker.save()
-    after = len(tracker.list_open_jobs())
 
-    if after < before:
+    for plate in removed:
         print(f"Заявка {plate} снята с отслеживания. Напоминаний по ней больше не будет.")
-    else:
+    for plate in missing:
         print(f"Заявка {plate} не найдена в списке отслеживаемых (проверь номер).")
 
 
