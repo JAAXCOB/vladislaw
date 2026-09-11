@@ -47,8 +47,16 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           tail -80 client-build.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          test "$(cat driver-exit)" = 0
-          test "$(cat client-exit)" = 0
+          if [ "$(cat driver-exit)" != 0 ]; then
+            message=$(grep -E 'error:|FAILURE:|What went wrong|Could not|failed' driver-build.log | tail -20 | tr '\n' ' ')
+            echo "::error title=Driver build::$message"
+            exit 1
+          fi
+          if [ "$(cat client-exit)" != 0 ]; then
+            message=$(grep -E 'error:|FAILURE:|What went wrong|Could not|failed' client-build.log | tail -20 | tr '\n' ' ')
+            echo "::error title=Client build::$message"
+            exit 1
+          fi
       - name: Collect APKs
         run: |
           mkdir artifacts
