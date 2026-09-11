@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#050607">
+<link rel="manifest" href="/manifest.webmanifest?v=221">
+<link rel="apple-touch-icon" href="/assets/pwa-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="AV Rescue">
+<script src="/pwa.js?v=221" defer></script>
+<title>AV Rescue — Найдём помощь рядом</title>
+<meta name="description" content="AV Rescue — помощь на дороге 24/7 в Москве и Московской области.">
+<style>
+:root{--red:#ed111c;--bg:#050607;--panel:#0d0f11;--line:#30343a;--muted:#adb0b5}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:#fff;font-family:Arial,Helvetica,sans-serif}
+a{text-decoration:none;color:inherit}button,input,select,textarea{font:inherit}
+.wrap{width:min(1280px,calc(100% - 42px));margin:auto}
+
+header{height:82px;position:sticky;top:0;z-index:1000;background:#050607f4;border-bottom:1px solid #22252a;backdrop-filter:blur(10px)}
+.nav{height:100%;display:flex;align-items:center;justify-content:space-between;gap:22px}
+.brand{display:flex;align-items:center;gap:12px}.avr{font-size:43px;font-weight:900;letter-spacing:-5px}.avr .r{color:var(--red)}
+.brandText{font-size:14px;font-weight:900}.brandText small{display:block;font-size:10px;font-weight:400;color:#aaa;margin-top:3px}
+.menu{display:flex;gap:25px;font-size:14px}.menu a:hover{color:var(--red)}
+.phone,.btn{display:inline-flex;align-items:center;justify-content:center;padding:14px 20px;border-radius:7px;background:var(--red);border:1px solid var(--red);color:#fff;font-weight:800;cursor:pointer}
+.btn.secondary{background:#0a0c0e;border-color:#62666c}
+
+.hero{position:relative;min-height:610px;overflow:hidden}
+.heroMedia{position:absolute;right:0;top:0;width:60%;height:100%;background:url("assets/hero-clean-v30.jpg?v=30") center/cover no-repeat}
+.heroMedia:before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#050607 0,#05060798 24%,transparent 58%),linear-gradient(0deg,#050607 0,transparent 25%)}
+.hero .wrap{position:relative;z-index:2;min-height:610px;display:flex;align-items:center}
+.heroCopy{width:49%}.eyebrow{font-size:13px;font-weight:900;color:var(--red);letter-spacing:1.5px}
+h1{font-size:clamp(62px,7vw,94px);line-height:.93;letter-spacing:-6px;margin:18px 0 13px}.red{color:var(--red)}
+.hero h2{font-size:34px;margin:0 0 15px}.lead{font-size:18px;line-height:1.55;color:#ddd}
+.heroActions{display:flex;gap:12px;margin-top:27px}
+.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:43px}
+.fact b{font-size:12px;display:block}.fact small{font-size:10px;color:#aaa;display:block;margin-top:4px}
+
+section{padding:66px 0}.sectionTitle{display:flex;align-items:center;justify-content:center;gap:23px;font-size:31px;margin:0 0 31px}
+.sectionTitle:before,.sectionTitle:after{content:"";height:1px;background:#45484d;flex:1}
+
+/* SERVICES: picture + text only */
+.services{display:grid;grid-template-columns:repeat(6,1fr);gap:13px}
+.service{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:linear-gradient(145deg,#101214,#08090a)}
+.servicePhoto{width:100%;aspect-ratio:16/10;background-size:cover;background-position:center}
+.serviceBody{padding:15px 14px 18px;min-height:135px}
+.service h3{font-size:15px;margin:0 0 9px}.service p{font-size:11.5px;line-height:1.5;color:#c2c3c6;margin:0}
+
+/* BENEFITS: compact + image thumbnail, no emoji */
+#why{padding-top:18px}.advantages{display:grid;grid-template-columns:repeat(5,1fr);gap:11px}
+.adv{border:1px solid var(--line);border-radius:8px;padding:12px;min-height:112px;display:grid;grid-template-columns:68px 1fr;gap:12px;align-items:center;background:#0a0c0e}
+.advImg{width:68px;height:68px;border-radius:7px;object-fit:cover;border:1px solid #25282d}
+.adv b{font-size:13px}.adv p{font-size:10.5px;line-height:1.45;color:#bbb;margin:7px 0 0}
+
+/* ORDER */
+.order{border:1px solid var(--line);border-radius:10px;background:linear-gradient(145deg,#0e1012,#08090a);padding:28px}
+.order h2{font-size:29px;margin:0 0 7px}.order>p{color:#bbb;margin:0 0 22px}
+.steps{display:grid;grid-template-columns:1fr 1fr;gap:27px}.label{display:block;font-size:12px;font-weight:800;margin:12px 0 7px}
+input,select,textarea{width:100%;background:#151719;border:1px solid #34373b;border-radius:6px;color:#fff;padding:13px;font-size:13px}
+textarea{min-height:82px;resize:vertical}
+.vehicleTypes{display:grid;grid-template-columns:repeat(6,1fr);gap:7px}
+.vehicleBtn{background:#0b0d0f;border:1px solid #34373b;color:#ddd;border-radius:7px;padding:0;overflow:hidden;cursor:pointer;font-size:10px;min-width:0}
+.vehicleBtn img{width:100%;height:68px;display:block;object-fit:cover;background:#090a0b}
+.vehicleBtn span{display:block;padding:8px 3px}.vehicleBtn.active{border-color:var(--red);box-shadow:inset 0 0 0 1px var(--red)}
+.mapWrap{position:relative;border:1px solid #34373b;border-radius:7px;overflow:hidden;margin-top:9px}
+#map{height:265px;background:#151719}.locate{position:absolute;left:10px;bottom:10px;z-index:500;background:#fff;color:#111;border:0;border-radius:6px;padding:8px 10px;font-size:12px;cursor:pointer}
+.mapCountry{position:absolute;right:10px;bottom:8px;z-index:500;background:#fff;color:#222;border-radius:4px;padding:4px 7px;font-size:10px}
+.inline2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.submit{width:100%;margin-top:12px;border:0}.privacy{font-size:10px;color:#aaa}
+.partner{margin-top:17px;border:1px solid var(--line);border-radius:9px;padding:25px;display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center}
+.partner h2{margin:0 0 7px}.partner p{margin:0;color:#aaa}
+.iosApp{display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center;border:1px solid #34383e;border-radius:18px;padding:24px;background:radial-gradient(circle at 12% 10%,#2a090d 0,transparent 34%),linear-gradient(145deg,#14171a,#090a0c);box-shadow:0 18px 55px #0006}
+.iosIcon{width:88px;height:88px;border-radius:22px;box-shadow:0 12px 30px #0008}.iosApp h2{font-size:27px;margin:0 0 7px}.iosApp p{color:#b9bcc1;line-height:1.5;margin:0}.iosLabel{display:inline-block;margin-bottom:8px;color:#ff5d65;font-size:11px;font-weight:900;letter-spacing:1.2px}.iosHint{display:block;margin-top:8px;color:#85898f;font-size:11px}
+.ratings{padding-top:22px}.ratingGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.ratingCard{border:1px solid #34383e;border-radius:12px;padding:22px;background:linear-gradient(145deg,#111316,#090a0c);display:flex;align-items:center;justify-content:space-between;gap:18px}.ratingBrand{font-size:19px;font-weight:900}.ratingBrand small{display:block;margin-top:7px;color:#969ba2;font-size:11px;font-weight:400}.ratingState{color:#ff5d65;font-size:12px;font-weight:800;text-align:right}
+footer{border-top:1px solid #282b2e;padding:29px 0}.footer{display:flex;justify-content:space-between;align-items:center;color:#aaa;font-size:12px}
+
+@media(max-width:1080px){.menu{gap:14px}.services{grid-template-columns:repeat(3,1fr)}.advantages{grid-template-columns:repeat(3,1fr)}.vehicleTypes{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:800px){.menu{display:none}.brandText{display:none}.heroMedia{width:100%;opacity:.44}.heroCopy{width:100%}.facts{grid-template-columns:1fr 1fr}.steps{grid-template-columns:1fr}.advantages{grid-template-columns:1fr 1fr}.partner{grid-template-columns:1fr}.iosApp{grid-template-columns:auto 1fr}.iosApp .btn{grid-column:1/-1;width:100%}.ratingGrid{grid-template-columns:1fr}}
+@media(max-width:540px){.wrap{width:min(100% - 28px,1280px)}.phone{font-size:12px;padding:10px}.heroActions{display:block}.heroActions .btn{display:flex;margin:8px 0}.services{grid-template-columns:1fr}.advantages{grid-template-columns:1fr}.vehicleTypes{grid-template-columns:repeat(2,1fr)}.inline2{grid-template-columns:1fr}.footer{display:block}.footer>div{margin:14px 0}}
+</style>
+</head>
+<body>
+<header><div class="wrap nav">
+<a class="brand" href="#"><span class="avr">AV<span class="r">R</span></span><span class="brandText">AV RESCUE<small>Найдём помощь рядом</small></span></a>
+<nav class="menu"><a href="#services">Услуги</a><a href="#why">Почему мы</a><a href="#order">Вызвать помощь</a><a href="#partners">Партнёрам</a><a href="#contacts">Контакты</a><a id="portalLoginLink" href="/portal.php">Войти</a><a href="/register.php">Регистрация</a></nav>
+<a class="phone" href="tel:+79255845858">8 925 584-58-58</a>
+</div></header><div style="background:#ed111c;color:#fff;text-align:center;padding:9px 14px;font-weight:700;font-size:13px">Сейчас принимаем заказы: САО, СВАО и ближайшая Московская область.</div>
+
+<main>
+<div class="hero"><div class="heroMedia"></div><div class="wrap"><div class="heroCopy">
+<div class="eyebrow">ПОМОЩЬ НА ДОРОГЕ • 24/7</div><h1>AV <span class="red">Rescue</span></h1><h2>Найдём помощь рядом</h2>
+<p class="lead">Помогаем автомобилистам в Москве и Московской области — от запуска двигателя до эвакуации.</p>
+<div class="heroActions"><a class="btn" href="#order">Вызвать помощь</a></div>
+<div class="facts"><div class="fact"><b>24/7</b><small>Работаем круглосуточно</small></div><div class="fact"><b>Москва и МО</b><small>Выезжаем быстро</small></div><div class="fact"><b>Проверенные партнёры</b><small>Сеть исполнителей</small></div><div class="fact"><b>Быстрый поиск</b><small>Подбор исполнителя</small></div></div>
+</div></div></div>
+
+<section id="services"><div class="wrap"><h2 class="sectionTitle">Наши <span class="red">услуги</span></h2><div class="services">
+<article class="service"><div class="servicePhoto" style="background-image:url('assets/service-evacuation-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Эвакуация</h3><p>Быстрая и безопасная эвакуация легковых и коммерческих автомобилей.</p></div></article>
+<article class="service"><div class="servicePhoto" style="background-image:url('assets/service-battery-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Запуск двигателя</h3><p>Запустим двигатель при разряженном аккумуляторе.</p></div></article>
+<article class="service"><div class="servicePhoto" style="background-image:url('assets/service-fuel-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Подвоз топлива</h3><p>Привезём топливо, если оно закончилось в дороге.</p></div></article>
+<article class="service"><div class="servicePhoto" style="background-image:url('assets/service-wheel-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Замена колеса</h3><p>Оперативно заменим пробитое колесо на запасное.</p></div></article>
+<article class="service"><div class="servicePhoto" style="background-image:url('assets/service-repair-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Техпомощь на дороге</h3><p>Помощь при неисправности автомобиля на месте.</p></div></article>
+<article class="service"><div class="servicePhoto" style="background-image:url('assets/service-unlock-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Вскрытие автомобиля</h3><p>Аккуратная помощь без повреждения автомобиля.</p></div></article>
+</div></div></section>
+
+<section id="why"><div class="wrap"><h2 class="sectionTitle">Почему выбирают <span class="red">AV Rescue</span></h2><div class="advantages">
+<div class="adv"><img class="advImg" src="assets/benefit-247-v30.jpg?v=30"><div><b>Работаем 24/7</b><p>На связи круглосуточно, без выходных.</p></div></div>
+<div class="adv"><img class="advImg" src="assets/benefit-moscow-v30.jpg?v=30"><div><b>Москва и МО</b><p>Быстро приезжаем в любую точку региона.</p></div></div>
+<div class="adv"><img class="advImg" src="assets/benefit-fast-v30.jpg?v=30"><div><b>Быстрый поиск</b><p>Подбираем ближайшего свободного специалиста.</p></div></div>
+<div class="adv"><img class="advImg" src="assets/benefit-partners-v30.jpg?v=30"><div><b>Проверенные партнёры</b><p>Формируем сеть надёжных исполнителей.</p></div></div>
+<div class="adv"><img class="advImg" src="assets/benefit-terms-v30.jpg?v=30"><div><b>Прозрачные условия</b><p>Условия известны до подтверждения заказа.</p></div></div>
+</div></div></section>
+
+<section id="order"><div class="wrap"><div class="order">
+<h2>Вызвать помощь</h2><p>Заполните данные автомобиля и укажите точку на карте.</p>
+<form id="orderForm"><div class="steps">
+<div>
+<label class="label">1. Что случилось?</label><select id="service" required><option value="">Выберите тип услуги</option><option>Эвакуация</option><option>Запуск двигателя</option><option>Подвоз топлива</option><option>Замена колеса</option><option>Техпомощь</option><option>Вскрытие автомобиля</option></select>
+<label class="label">2. Тип транспорта</label>
+<div class="vehicleTypes">
+<button type="button" class="vehicleBtn active" data-value="Легковой"><img src="assets/vehicle-car-v30.jpg?v=30"><span>Легковой</span></button>
+<button type="button" class="vehicleBtn" data-value="Внедорожник"><img src="assets/vehicle-suv-v30.jpg?v=30"><span>Внедорожник</span></button>
+<button type="button" class="vehicleBtn" data-value="Мотоцикл"><img src="assets/vehicle-moto-v30.jpg?v=30"><span>Мотоцикл</span></button>
+<button type="button" class="vehicleBtn" data-value="Коммерческий"><img src="assets/vehicle-commercial-v30.jpg?v=30"><span>Коммерческий</span></button>
+<button type="button" class="vehicleBtn" data-value="Грузовой"><img src="assets/vehicle-truck-v30.jpg?v=30"><span>Грузовой</span></button>
+<button type="button" class="vehicleBtn" data-value="Спецтехника"><img src="assets/vehicle-special-v30.jpg?v=30"><span>Спецтехника</span></button>
+</div><input type="hidden" id="vehicleType" value="Легковой">
+
+<label class="label">3. Местоположение</label>
+<input id="address" placeholder="Введите адрес в России или выберите точку на карте" required>
+<input id="destination" placeholder="Адрес назначения">
+<div class="mapWrap"><div id="map"></div><button type="button" class="locate" id="locateBtn">Моё местоположение</button><div class="mapCountry">Россия · Яндекс Карты</div></div>
+<input type="hidden" id="lat"><input type="hidden" id="lng"><input type="hidden" id="destination_lat"><input type="hidden" id="destination_lng">
+</div>
+
+<div>
+<label class="label">4. Автомобиль</label><input id="car" placeholder="Марка и модель (например BMW 530)">
+<label class="label">Состояние автомобиля</label><select id="condition"><option>На ходу</option><option>Не заводится</option><option>После ДТП</option><option>Заблокировано рулевое управление</option><option>Другое</option></select>
+<label class="label">Заблокированные колёса</label><select id="blocked"><option>Нет</option><option>1 колесо</option><option>2 колеса</option><option>3 колеса</option><option>4 колеса</option></select>
+<label class="label">Комментарий</label><select id="blockedWheels"><option value="0">Колёса свободны</option><option value="1">Заблокировано 1 колесо</option><option value="2">Заблокировано 2+ колеса</option></select><label class="check"><input type="checkbox" id="accident"> Автомобиль после ДТП</label><label class="check"><input type="checkbox" id="cannotRoll"> Автомобиль не катится</label><label class="check"><input type="checkbox" id="lowClearance"> Низкий клиренс</label><textarea id="comment" placeholder="Комментарий (необязательно)"></textarea>
+<label class="label">Ваши данные</label><div class="inline2"><input id="name" required placeholder="Ваше имя"><input id="phone" required placeholder="Телефон"></div>
+<button class="btn submit" type="submit">Отправить заявку</button><p class="privacy">Данные используются только для обработки заявки AV Rescue.</p>
+</div>
+</div></form></div>
+
+<div style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn" href="/executor-register.php">Регистрация</a><a class="btn secondary" href="/portal.php?role=executor">Войти</a></div></div>
+</div></section>
+
+
+
+
+
+<section id="account"><div class="wrap"><div class="partner" style="margin-top:0"><div><h2>Личный аккаунт AV Rescue</h2><p>Получите персональный ID, сохраняйте данные, смотрите историю и отслеживайте статусы заявок.</p></div><div style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn" href="/register.php?type=client">Регистрация</a><a class="btn secondary" href="/portal.php?role=client">Войти</a></div></div></div></section>
+<section id="b2b"><div class="wrap"><div class="partner" style="margin-top:0"><div><h2>B2B партнёрам AV Rescue</h2><p>Корпоративный кабинет для автосервисов, дилеров, автопарков, страховых компаний и других партнёров.</p></div><div style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn" href="/b2b-register.php">Регистрация</a><a class="btn secondary" href="/portal.php?role=b2b">Войти</a></div></div></div></section>
+<section id="partners"><div class="wrap"><div class="partner" style="margin-top:0"><div><h2>Стать исполнителем AV Rescue</h2><p>Создайте аккаунт исполнителя, добавьте технику и после проверки получайте заказы через AV Rescue.</p></div><div style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn" href="/executor-register.php">Регистрация</a><a class="btn secondary" href="/portal.php?role=executor">Войти</a></div></div></div></section>
+<section id="ios-app"><div class="wrap"><div class="iosApp"><img class="iosIcon" src="/assets/pwa-icon-180.png" alt="AV Rescue"><div><span class="iosLabel">AV RESCUE ДЛЯ IPHONE</span><h2>Всё необходимое — как в приложении</h2><p>Заказы, карта, кабинет и уведомления открываются с экрана «Домой» без App Store.</p><span class="iosHint">Установка займёт меньше минуты. Требуется Safari.</span></div><button class="btn" type="button" onclick="window.AVRPWA&&window.AVRPWA.install()">Установить на iPhone</button></div></div></section>
+<section class="ratings" aria-label="AV Rescue на картах"><div class="wrap"><h2 class="sectionTitle">AV Rescue <span class="red">на картах</span></h2><div class="ratingGrid">
+<div class="ratingCard"><div class="ratingBrand">Яндекс Карты<small>Отзывы и оценка компании</small></div><div class="ratingState">Карточка проходит модерацию</div></div>
+<div class="ratingCard"><div class="ratingBrand">2ГИС<small>Отзывы и оценка компании</small></div><div class="ratingState">Карточка проходит модерацию</div></div>
+</div></div></section>
+</main>
+
+<footer id="contacts"><div class="wrap footer">
+<div><span class="avr">AV<span class="red">R</span></span><br>Найдём помощь рядом</div>
+<div>Телефон<br><a class="red" href="tel:+79255845858">8 925 584-58-58</a></div>
+<div>Telegram<br><a class="red" href="https://t.me/avrescue">@avrescue</a></div>
+<div>Email<br><a class="red" href="mailto:AVRDriver@yandex.ru">AVRDriver@yandex.ru</a></div>
+<div>Сайт<br><span class="red">av-rescue.ru</span></div><div>© AV Rescue, 2026<br>Все права защищены</div>
+<div style="grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;padding-top:8px">
+<a href="/prices.php">Стоимость услуг</a>
+<a href="/legal.php?doc=offer">Условия оказания услуг</a>
+<a href="/legal.php?doc=payment">Оплата и возврат</a>
+<a href="/legal.php?doc=privacy">Конфиденциальность</a>
+<a href="/legal.php?doc=terms">Пользовательское соглашение</a>
+</div>
+</div></footer>
+
+<script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU"></script>
+<script>
+let map,marker;
+function initMap(){
+ if(typeof ymaps==='undefined') return;
+ map=new ymaps.Map('map',{center:[55.7558,37.6173],zoom:10,controls:['zoomControl','geolocationControl']},{restrictMapArea:[[41,19],[82,180]]});
+ map.events.add('click',e=>{const c=e.get('coords');setPoint(c[0],c[1]);reverseGeocode(c[0],c[1])});
+}
+function setPoint(lat,lng){
+ document.getElementById('lat').value=lat.toFixed(6);document.getElementById('lng').value=lng.toFixed(6);
+ if(marker) marker.geometry.setCoordinates([lat,lng]); else{marker=new ymaps.Placemark([lat,lng],{balloonContent:'Адрес подачи'},{preset:'islands#redIcon'});map.geoObjects.add(marker)}
+ map.panTo([lat,lng]);
+}
+async function geocodeField(id,latId,lngId){
+ const q=document.getElementById(id).value.trim();if(!q||typeof ymaps==='undefined')return false;
+ try{const result=await ymaps.geocode(q,{results:1,boundedBy:[[41,19],[82,180]],strictBounds:false});const first=result.geoObjects.get(0);if(!first)return false;const c=first.geometry.getCoordinates();document.getElementById(latId).value=c[0].toFixed(6);document.getElementById(lngId).value=c[1].toFixed(6);if(id==='address'){setPoint(c[0],c[1]);map.setZoom(15)}return true}catch(e){return false}
+}
+async function reverseGeocode(lat,lng){
+ try{const result=await ymaps.geocode([lat,lng],{results:1});const first=result.geoObjects.get(0);if(first)document.getElementById('address').value=first.getAddressLine()}catch(e){}
+}
+document.getElementById('address').addEventListener('change',()=>geocodeField('address','lat','lng'));
+document.getElementById('destination').addEventListener('change',()=>geocodeField('destination','destination_lat','destination_lng'));
+document.getElementById('locateBtn').addEventListener('click',()=>{
+ if(!navigator.geolocation){alert('Геолокация не поддерживается браузером');return}
+ navigator.geolocation.getCurrentPosition(p=>{setPoint(p.coords.latitude,p.coords.longitude);map.setZoom(15);reverseGeocode(p.coords.latitude,p.coords.longitude)},()=>alert('Не удалось получить местоположение. Поставьте точку на карте вручную.'));
+});
+document.querySelectorAll('.vehicleBtn').forEach(b=>b.addEventListener('click',()=>{
+ document.querySelectorAll('.vehicleBtn').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById('vehicleType').value=b.dataset.value;
+}));
+document.getElementById('orderForm').addEventListener('submit',async e=>{
+ e.preventDefault();const form=e.currentTarget;const val=id=>document.getElementById(id).value||'';if(val('service')==='Эвакуация'&&!val('destination').trim()){alert('Укажите адрес назначения');document.getElementById('destination').focus();return}const btn=form.querySelector('.submit');btn.disabled=true;btn.textContent='Отправляем…';
+ try{if(!val('lat')||!val('lng'))await geocodeField('address','lat','lng');if(val('destination')&&(!val('destination_lat')||!val('destination_lng')))await geocodeField('destination','destination_lat','destination_lng');const r=await fetch('api/create_order.php',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({service:val('service'),vehicle_type:val('vehicleType'),car:val('car'),condition:val('condition'),blocked:val('blocked'),address:val('address'),destination:val('destination'),lat:val('lat'),lng:val('lng'),destination_lat:val('destination_lat'),destination_lng:val('destination_lng'),comment:val('comment'),name:val('name'),phone:val('phone'),payment_method:'cash'})});
+   const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(parseErr){throw new Error('API не отвечает как PHP. Проверьте, что PHP включён на сайте. Код HTTP: '+r.status)}
+   if(!r.ok||!d.ok)throw new Error(d.error||('Ошибка сервера '+r.status));alert('Заявка '+d.order_id+' принята. Диспетчер AV Rescue уже видит её в системе.');form.reset();document.getElementById('vehicleType').value='Легковой';document.querySelectorAll('.vehicleBtn').forEach(x=>x.classList.remove('active'));document.querySelector('.vehicleBtn')?.classList.add('active');if(marker){map.geoObjects.remove(marker);marker=null;}}
+ catch(err){alert('Не удалось отправить заявку: '+err.message)}finally{btn.disabled=false;btn.textContent='Отправить заявку';}
+});
+ymaps.ready(initMap);
+</script>
+
+<script>
+(async function fillClient(){
+  const name=document.getElementById('name'),phone=document.getElementById('phone');
+  const storedName=sessionStorage.getItem('av_client_name')||'',storedPhone=sessionStorage.getItem('av_client_phone')||'';
+  if(storedName&&name)name.value=storedName;if(storedPhone&&phone)phone.value=storedPhone;
+  try{
+    const r=await fetch('/api/session_state.php?t='+Date.now(),{cache:'no-store',credentials:'include'});
+    const d=await r.json();
+    const a=document.getElementById('portalLoginLink');
+    if(a && d.ok && d.session){
+      a.href=d.session.portal_url||'/portal.php';
+      if(d.session.logged_in){
+        a.textContent=d.session.label||'Личный кабинет';
+        a.title=d.session.name ? ('Вы вошли как '+d.session.name) : 'Открыть кабинет';
+        if(d.session.role==='client'){if(name){name.value=d.session.name||storedName;name.readOnly=true}if(phone){phone.value=d.session.phone||storedPhone;phone.readOnly=true}sessionStorage.setItem('av_client_name',d.session.name||'');sessionStorage.setItem('av_client_phone',d.session.phone||'')}
+      } else {
+        a.textContent='Войти';
+      }
+    }
+  }catch(e){}
+})();
+window.addEventListener('pageshow',()=>{const n=sessionStorage.getItem('av_client_name'),p=sessionStorage.getItem('av_client_phone');if(n&&document.getElementById('name'))document.getElementById('name').value=n;if(p&&document.getElementById('phone'))document.getElementById('phone').value=p});
+</script>
+
+<script>
+(function(){
+  const token=sessionStorage.getItem('av_tab_session');
+  const hasPortalHint=document.documentElement.getAttribute('data-av-auth-page')==='1';
+  async function validate(){
+    try{
+      const r=await fetch('/api/tab_session.php',{
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded','X-AV-Tab-Session':token||''},
+        body:'token='+encodeURIComponent(token||''),
+        cache:'no-store',
+        credentials:'same-origin'
+      });
+      const d=await r.json();
+      if(d.expired){
+        sessionStorage.removeItem('av_tab_session');
+        if(hasPortalHint) location.replace('/login.php');
+      }
+    }catch(e){}
+  }
+  validate();
+})();
+</script>
+
+</body></html>
