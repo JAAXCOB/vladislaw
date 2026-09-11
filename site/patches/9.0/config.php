@@ -289,11 +289,8 @@ function av_estimate_price($service,$distanceKm){
     return max((float)$r['minimum'], round($price/100)*100);
 }
 function av_commission_rate_for_worker($worker){
-    $base=isset($worker['commission'])?(float)$worker['commission']:20.0;
-    $rating=av_worker_rating($worker['id']??'');
-    if($rating>=4.8) $base=max(15,$base-3);
-    elseif($rating>=4.5) $base=max(17,$base-1);
-    return $base;
+    $terms=av_worker_loyalty($worker);
+    return (float)$terms['commission_rate'];
 }
 
 define('AV_B2B_DOC_FILE', __DIR__ . '/data/b2b_docs.php');
@@ -374,6 +371,10 @@ function av_driver_balance($workerId){$v=0;foreach(av_ledger() as $x)if(($x['wor
 function av_ledger_add($workerId,$orderId,$type,$amount,$note=''){
  $l=av_ledger();$l[]=array('id'=>'TX-'.date('ymdHis').'-'.substr(bin2hex(random_bytes(3)),0,6),'worker_id'=>$workerId,'order_id'=>$orderId,'type'=>$type,'amount'=>round((float)$amount,2),'note'=>$note,'status'=>'posted','at'=>date('c'));av_write_ledger($l);
 }
+function av_ledger_add_once($workerId,$orderId,$type,$amount,$note=''){
+ foreach(av_ledger() as $row)if((string)($row['worker_id']??'')===(string)$workerId&&(string)($row['order_id']??'')===(string)$orderId&&($row['status']??'posted')==='posted')return false;
+ av_ledger_add($workerId,$orderId,$type,$amount,$note);return true;
+}
 function av_geo_allowed($lat,$lng,$district=''){
  $g=av_geo_settings();if(empty($g['enabled']))return true;
  if($district&&in_array(mb_strtoupper(trim($district)),array_map('mb_strtoupper',$g['districts']??array()),true))return true;
@@ -386,7 +387,7 @@ define('AV_EXECUTOR_APPLICATIONS_FILE',__DIR__.'/data/executor_applications.php'
 
 function av_platform_settings(){
  $x=av_secure_read(AV_PLATFORM_SETTINGS_FILE);
- return $x?:array(
+ $defaults=array(
   'service_area_enabled'=>true,
   'base_address'=>'Дмитровское шоссе, 163с3, Москва',
   'base_lat'=>55.929,
@@ -395,23 +396,60 @@ function av_platform_settings(){
   'districts'=>array('САО','СВАО'),
   'own_fleet_priority'=>true,
   'external_executors_enabled'=>true,
-  'default_commission_percent'=>20,
+  'default_commission_percent'=>10,
+  'external_driver_payout_percent'=>90,
+  'external_driver_max_payout_percent'=>93,
+  'external_driver_min_commission_percent'=>7,
+  'external_driver_livery_discount_percent'=>1,
+  'external_driver_order_steps'=>array(30,100,200),
+  'own_fleet_payout_percent'=>35,
   'bank_name'=>'Альфа-Банк',
   'acquiring_mode'=>'not_connected',
   'payout_mode'=>'not_connected'
  );
+ if(!$x)return $defaults;
+ $settings=array_merge($defaults,$x);
+ if(!array_key_exists('external_driver_payout_percent',$x)){
+  $settings['default_commission_percent']=10;$settings['external_driver_payout_percent']=90;$settings['external_driver_max_payout_percent']=93;$settings['external_driver_min_commission_percent']=7;$settings['external_driver_livery_discount_percent']=1;$settings['external_driver_order_steps']=array(30,100,200);$settings['own_fleet_payout_percent']=35;
+ }
+ return $settings;
 }
 function av_write_platform_settings($x){return av_secure_write(AV_PLATFORM_SETTINGS_FILE,$x);}
 function av_executor_apps(){return av_secure_read(AV_EXECUTOR_APPLICATIONS_FILE);}
 function av_write_executor_apps($x){return av_secure_write(AV_EXECUTOR_APPLICATIONS_FILE,$x);}
 function av_user_by_id($id){foreach(av_read_users() as $u)if(($u['id']??'')===$id)return $u;return null;}
+function av_worker_by_id($id){foreach(av_read_workers() as $w)if((string)($w['id']??'')===(string)$id)return $w;return null;}
 function av_worker_by_user_id($id){foreach(av_read_workers() as $w)if(($w['user_id']??'')===$id)return $w;return null;}
 function av_fleet_vehicle_by_driver($uid){foreach(av_fleet() as $v)if(($v['driver_user_id']??'')===$uid)return $v;return null;}
-function av_order_financials($o){
+if(!function_exists('av_worker_is_own_fleet')){
+ function av_worker_is_own_fleet($worker){return !empty($worker['own_fleet']);}
+}
+function av_worker_loyalty($worker){
+ $own=av_worker_is_own_fleet($worker);$settings=av_platform_settings();
+ if($own)$payout=(float)($settings['own_fleet_payout_percent']??35);
+ else{
+  $basePayout=(float)($settings['external_driver_payout_percent']??90);$minCommission=(float)($settings['external_driver_min_commission_percent']??7);$commission=100-$basePayout;
+  if(!empty($worker['avr_branded']))$commission-=(float)($settings['external_driver_livery_discount_percent']??1);
+  $completed=0;foreach(av_read_orders() as $order)if((string)($order['assigned_worker_id']??'')===(string)($worker['id']??'')&&in_array($order['status']??'',array('done','completed'),true)&&empty($order['b2b_id'])&&($order['source']??'')!=='max_partner')$completed++;
+  $steps=$settings['external_driver_order_steps']??array(30,100,200);if(!is_array($steps))$steps=array(30,100,200);foreach($steps as $threshold)if($completed>=(int)$threshold)$commission-=1;
+  $commission=max($minCommission,$commission);$payout=100-$commission;
+ }
+ $payout=max(0,min(100,$payout));
+ return array('level'=>$own?'own_fleet':'external','name'=>$own?'Собственный парк':(!empty($worker['avr_branded'])?'Сторонний исполнитель · оклейка AV Rescue':'Сторонний исполнитель'),'payout_rate'=>$payout,'commission_rate'=>round(100-$payout,2),'completed_orders'=>$own?null:$completed,'avr_branded'=>$own?false:!empty($worker['avr_branded']));
+}
+function av_order_financials($o,$worker=null){
  $gross=(float)($o['final_price']??$o['estimated_price']??0);
- $rate=(float)($o['commission_rate']??av_platform_settings()['default_commission_percent']??20);
+ if(!empty($o['b2b_id'])||($o['source']??'')==='max_partner')return array('gross'=>$gross,'commission_rate'=>0,'payout_rate'=>0,'commission'=>0,'driver_net'=>0,'loyalty_level'=>'b2b','loyalty_name'=>'B2B — отдельный учёт','excluded'=>true);
+ if(!$worker&&!empty($o['assigned_worker_id']))$worker=av_worker_by_id($o['assigned_worker_id']);
+ $terms=av_worker_loyalty(is_array($worker)?$worker:array());$rate=(float)$terms['commission_rate'];
  $commission=round($gross*$rate/100,2);
- return array('gross'=>$gross,'commission_rate'=>$rate,'commission'=>$commission,'driver_net'=>round($gross-$commission,2));
+ return array('gross'=>$gross,'commission_rate'=>$rate,'payout_rate'=>(float)$terms['payout_rate'],'commission'=>$commission,'driver_net'=>round($gross-$commission,2),'loyalty_level'=>$terms['level'],'loyalty_name'=>$terms['name'],'excluded'=>false);
+}
+function av_finance_record_order($order,$financials){
+ if(!empty($financials['excluded']))return false;$orderId=(string)($order['id']??'');if($orderId==='')return false;
+ $rows=av_read_finance();foreach($rows as $row)if((string)($row['order_id']??'')===$orderId)return false;
+ $rows[]=array('id'=>'FN-'.date('ymdHis').'-'.substr(bin2hex(random_bytes(3)),0,6),'order_id'=>$orderId,'worker_id'=>$order['assigned_worker_id']??'','price'=>$financials['gross'],'commission_rate'=>$financials['commission_rate'],'payout_rate'=>$financials['payout_rate'],'commission_amount'=>$financials['commission'],'worker_payout'=>$financials['driver_net'],'loyalty_level'=>$financials['loyalty_level'],'created_at'=>date('c'));
+ return av_write_finance($rows);
 }
 
 
