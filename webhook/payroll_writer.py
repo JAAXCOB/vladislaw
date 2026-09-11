@@ -139,22 +139,39 @@ def _match_employee_column(ws: Worksheet, employee_name: str) -> Optional[int]:
     if not employee_name:
         return None
 
-    name_lower = employee_name.strip().lower()
+    name_lower = " ".join(employee_name.strip().casefold().split())
     candidates = _employee_columns(ws)
 
-    # Pass 1: exact word match (e.g. sender "Валера" vs header "Баранов Валерий Валера")
+    # Prefer the most specific complete header found in the MAX display name.
+    # This separates employees who share a first name.
+    full_name_matches = [
+        (col, header)
+        for col, header in candidates.items()
+        if " ".join(header.casefold().split()) == name_lower
+        or " ".join(header.casefold().split()) in name_lower
+    ]
+    if full_name_matches:
+        longest = max(len(header.split()) for _, header in full_name_matches)
+        most_specific = [
+            col for col, header in full_name_matches if len(header.split()) == longest
+        ]
+        if len(most_specific) == 1:
+            return most_specific[0]
+        return None
+
+    # Short aliases are accepted only when they identify one column.
+    # A shared bare first name such as "Николай" remains ambiguous.
     exact_matches = [
         col for col, header in candidates.items()
-        if name_lower in [w.lower() for w in header.split()]
+        if name_lower in [w.casefold() for w in header.split()]
     ]
     if len(exact_matches) == 1:
         return exact_matches[0]
 
-    # Pass 2: substring fallback, only if still unambiguous
     if not exact_matches:
         substring_matches = [
             col for col, header in candidates.items()
-            if name_lower in header.lower() or header.lower() in name_lower
+            if name_lower in header.casefold() or header.casefold() in name_lower
         ]
         if len(substring_matches) == 1:
             return substring_matches[0]
