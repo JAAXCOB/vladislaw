@@ -5,6 +5,11 @@ on:
     branches:
       - claude/max-excel-evacuation-automation-zxuvb4
     paths:
+      - "webhook/**"
+      - "scripts/**"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - "requirements.txt"
       - "runtime-status.txt"
   workflow_dispatch:
 
