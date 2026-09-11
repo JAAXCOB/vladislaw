@@ -125,9 +125,9 @@ class Message(BaseModel):
         chat. Falls back to the direct sender otherwise.
         """
         if self.link and self.link.sender:
-            return self.link.sender.first_name
+            return self.link.sender.display_name
         if self.sender:
-            return self.sender.first_name
+            return self.sender.display_name
         return ""
 
 
