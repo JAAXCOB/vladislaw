@@ -1,0 +1,1 @@
+<?php require_once __DIR__.'/../config.php';av_require_staff_api();if(!av_staff_can_admin())av_json_response(array('ok'=>false,'error'=>'FORBIDDEN'),403);$out=array();foreach(av_read_b2b() as $b){unset($b['password_hash']);$out[]=$b;}av_json_response(array('ok'=>true,'partners'=>$out));
