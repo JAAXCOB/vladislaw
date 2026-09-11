@@ -1,0 +1,47 @@
+name: Build AV Rescue Android apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Unpack Android projects
+        run: |
+          unzip -q android/AVR_Driver_Source_2.3.4.zip -d android
+          unzip -q android/AV_Rescue_Source_1.0.2.zip -d android
+      - name: Build AVR Driver
+        working-directory: android/AVRescueAndroid
+        run: chmod +x gradlew && ./gradlew assembleDebug bundleDebug --no-daemon
+      - name: Build AV Rescue Client
+        working-directory: android/AVRescueClientAndroid
+        run: chmod +x gradlew && ./gradlew assembleDebug bundleDebug --no-daemon
+      - name: Check PHP syntax
+        run: find site/patches/9.0 -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Collect APK files
+        run: |
+          mkdir -p artifacts
+          cp android/AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AVR_Driver_2.3.4.apk
+          cp android/AVRescueClientAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AV_Rescue_Client_1.0.2.apk
+          cp android/AVRescueAndroid/app/build/outputs/bundle/debug/app-debug.aab artifacts/AVR_Driver_2.3.4-debug.aab
+          cp android/AVRescueClientAndroid/app/build/outputs/bundle/debug/app-debug.aab artifacts/AV_Rescue_Client_1.0.2-debug.aab
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AV-Rescue-Android-APKs
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30
