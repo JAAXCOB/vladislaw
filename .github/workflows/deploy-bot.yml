@@ -136,7 +136,7 @@ jobs:
              done
              .venv/bin/python scripts/register_webhook.py
 
-             .venv/bin/python scripts/reconcile_closed_jobs.py --hours 72
+             .venv/bin/python scripts/reconcile_closed_jobs.py --hours 720
              .venv/bin/python scripts/safe_diagnostics.py
 
              systemctl status max-webhook.service --no-pager -l
