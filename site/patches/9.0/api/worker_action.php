@@ -34,13 +34,7 @@ if($action==='accept'){
   $distance=0;
   if(!empty($orders[$oi]['lat'])&&!empty($orders[$oi]['lng'])&&!empty($workers[$wi]['lat'])&&!empty($workers[$wi]['lng']))$distance=av_haversine_km($orders[$oi]['lat'],$orders[$oi]['lng'],$workers[$wi]['lat'],$workers[$wi]['lng']);
   if(empty($orders[$oi]['estimated_price']))$orders[$oi]['estimated_price']=av_estimate_price($orders[$oi]['service'],$distance);
-  $f=av_order_financials($orders[$oi],$workers[$wi]);
-  $orders[$oi]['final_price']=$f['gross'];$orders[$oi]['commission_rate']=$f['commission_rate'];$orders[$oi]['payout_rate']=$f['payout_rate'];$orders[$oi]['commission_amount']=$f['commission'];$orders[$oi]['worker_payout']=$f['driver_net'];$orders[$oi]['loyalty_level']=$f['loyalty_level'];$orders[$oi]['loyalty_name']=$f['loyalty_name'];
-  if(!empty($f['excluded']))$orders[$oi]['finance_posted']='b2b_separate';
-  else{
-    $cash=($orders[$oi]['payment_method']??'cash')==='cash';$orders[$oi]['ledger_type']=$cash?'commission_debit':'driver_credit';$orders[$oi]['ledger_amount']=$cash?-$f['commission']:$f['driver_net'];
-    av_finance_record_order($orders[$oi],$f);av_ledger_add_once($workers[$wi]['id'],$orders[$oi]['id'],$orders[$oi]['ledger_type'],$orders[$oi]['ledger_amount'],$cash?'Комиссия за наличный заказ':'Оплата картой за заказ');$orders[$oi]['finance_posted']=true;
-  }
+  av_post_order_finance($orders[$oi],$workers[$wi]);
 }
 $orders[$oi]['updated_at']=date('c');
 if(!av_write_orders($orders)||!av_write_workers($workers)) av_json_response(array('ok'=>false,'error'=>'Ошибка сохранения'),500);
