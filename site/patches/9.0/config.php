@@ -365,7 +365,10 @@ function av_fleet(){return av_secure_read(AV_FLEET_FILE);}
 function av_write_fleet($x){return av_secure_write(AV_FLEET_FILE,$x);}
 function av_ledger(){return av_secure_read(AV_LEDGER_FILE);}
 function av_write_ledger($x){return av_secure_write(AV_LEDGER_FILE,$x);}
-function av_payment_settings(){ $x=av_secure_read(AV_PAYMENT_SETTINGS_FILE); return $x?:array('legal_name'=>'','inn'=>'','bank_account'=>'','bank_name'=>'','bik'=>'','correspondent_account'=>'','acquiring_provider'=>'','acquiring_enabled'=>false,'payout_provider'=>'','payout_enabled'=>false,'cash_commission_enabled'=>true); }
+function av_payment_settings(){
+ $defaults=array('legal_name'=>'','inn'=>'','ogrnip'=>'','legal_address'=>'','bank_account'=>'','bank_name'=>'Альфа-Банк','bik'=>'','correspondent_account'=>'','support_email'=>'AVRDriver@yandex.ru','support_phone'=>'8 925 584-58-58','site_name'=>'AV Rescue','acquiring_provider'=>'alfa','acquiring_enabled'=>false,'alfa_mode'=>'test','alfa_username'=>'','alfa_password'=>'','alfa_token'=>'','payout_provider'=>'','payout_enabled'=>false,'cash_commission_enabled'=>true);
+ $x=av_secure_read(AV_PAYMENT_SETTINGS_FILE);return $x?array_merge($defaults,$x):$defaults;
+}
 function av_geo_settings(){ $x=av_secure_read(AV_GEO_SETTINGS_FILE); return $x?:array('base_address'=>'Дмитровское шоссе, 163с3, Москва','base_lat'=>55.929,'base_lng'=>37.545,'radius_km'=>25,'districts'=>array('САО','СВАО'),'enabled'=>true); }
 function av_driver_balance($workerId){$v=0;foreach(av_ledger() as $x)if(($x['worker_id']??'')===$workerId&&($x['status']??'posted')==='posted')$v+=(float)($x['amount']??0);return round($v,2);}
 function av_ledger_add($workerId,$orderId,$type,$amount,$note=''){
