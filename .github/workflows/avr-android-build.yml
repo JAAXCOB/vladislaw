@@ -1,0 +1,40 @@
+name: Build AVR Android 2.3.3
+
+on:
+  push:
+    branches: [ avr-android-build-233 ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Restore source
+        run: |
+          base64 -d ci/avr-android-source.tgz.b64 > /tmp/avr-android.tgz
+          tar -xzf /tmp/avr-android.tgz
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Build Driver
+        working-directory: AVRescueAndroid
+        run: chmod +x gradlew && ./gradlew clean assembleDebug --no-daemon
+      - name: Build Client
+        working-directory: AVRescueClientAndroid
+        run: chmod +x gradlew && ./gradlew clean assembleDebug --no-daemon
+      - name: Collect APKs
+        run: |
+          mkdir artifacts
+          cp AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AVR_Driver_2.3.3.apk
+          cp AVRescueClientAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AV_Rescue_Client_1.0.1.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AV-Rescue-Android-2.3.3
+          path: artifacts/*.apk
+          retention-days: 30
