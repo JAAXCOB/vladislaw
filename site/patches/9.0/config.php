@@ -345,6 +345,10 @@ function av_payment_method_label($method){
  $map=array('cash'=>'Наличные','card'=>'Банковская карта','sbp'=>'СБП','online'=>'Карта / СБП','bank_transfer'=>'Безналичный расчёт');
  return $map[(string)$method]??'По согласованию';
 }
+function av_guest_order_access($order,$token){
+ $stored=(string)($order['guest_access_hash']??'');$token=trim((string)$token);
+ return $stored!==''&&$token!==''&&hash_equals($stored,hash('sha256',$token));
+}
 function av_client_has_debt($userId){
  foreach(av_read_orders() as $o)if(($o['user_id']??'')===$userId&&($o['status']??'')==='done'&&in_array(av_payment_status($o),array('unpaid','overdue'),true))return true;
  return false;
