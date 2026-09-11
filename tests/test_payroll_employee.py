@@ -2,7 +2,9 @@ from datetime import datetime, timezone
 
 import openpyxl
 
-from webhook.payroll_writer import ensure_employee_column
+from webhook.models import Message, User
+from webhook.payroll_writer import _match_employee_column, ensure_employee_column
+from webhook.reporting_rules import employee_header
 
 
 def test_ensure_employee_column_is_idempotent_and_preserves_existing_data(tmp_path):
@@ -27,3 +29,27 @@ def test_ensure_employee_column_is_idempotent_and_preserves_existing_data(tmp_pa
     assert saved_sheet.cell(row=2, column=2).value == "Е523ТТ797"
     assert saved_sheet.cell(row=2, column=4).value == 4500
     assert saved_sheet.max_column == 6
+
+
+def test_full_name_separates_employees_with_same_first_name():
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append([
+        "Дата",
+        "VIN/Гос.номер ТС",
+        "Услуга",
+        "Николай Петров",
+        "Николай Большаков",
+    ])
+
+    assert _match_employee_column(sheet, "Николай Большаков Водитель Эва") == 5
+    assert _match_employee_column(sheet, "Николай") is None
+
+
+def test_max_sender_keeps_last_name_and_uses_specific_alias():
+    message = Message(
+        sender=User(user_id=1, first_name="Николай", last_name="Большаков")
+    )
+
+    assert message.effective_sender_name() == "Николай Большаков"
+    assert employee_header(message.effective_sender_name()) == "Николай Большаков"
