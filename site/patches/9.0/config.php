@@ -423,7 +423,7 @@ function av_security_headers() {
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: SAMEORIGIN');
     header('Referrer-Policy: strict-origin-when-cross-origin');
-    header('Permissions-Policy: geolocation=(self), camera=(), microphone=()');
+    header('Permissions-Policy: geolocation=(self), camera=(self), microphone=()');
     header("Content-Security-Policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self';");
 }
 av_security_headers();
