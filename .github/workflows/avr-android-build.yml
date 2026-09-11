@@ -1,4 +1,4 @@
-name: Build AVR Android Release 2.3.4
+name: Build AVR Android Release 2.3.4 / Client 1.0.3
 
 on:
   push:
@@ -61,10 +61,10 @@ jobs:
         run: |
           mkdir artifacts
           cp AVRescueAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AVR_Driver_2.3.4_unsigned.apk
-          cp AVRescueClientAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AV_Rescue_Client_1.0.2_unsigned.apk
+          cp AVRescueClientAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AV_Rescue_Client_1.0.3_unsigned.apk
           cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" artifacts/apksigner.jar
       - uses: actions/upload-artifact@v4
         with:
-          name: AV-Rescue-Android-Release-2.3.4
+          name: AV-Rescue-Android-Release-2.3.4-Client-1.0.3
           path: artifacts/*
           retention-days: 30
