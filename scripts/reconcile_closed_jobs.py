@@ -1,4 +1,4 @@
-"""Remove tracked reminders that have an explicit close report in recent MAX history."""
+"""Remove tracked reminders that have an explicit close report in MAX history."""
 from __future__ import annotations
 
 import argparse
@@ -21,7 +21,7 @@ from webhook.reporting_rules import is_bot_generated_message, parse_explicit_clo
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--hours", type=int, default=72)
+    parser.add_argument("--hours", type=int, default=720)
     args = parser.parse_args()
 
     if not settings.max_chat_id:
