@@ -30,6 +30,7 @@ if($destination&&(!$destinationLat||!$destinationLng)){[$destinationLat,$destina
 $next = count($orders) + 1;
 $id = 'AVR-' . date('ymd-His') . '-' . str_pad((string)$next, 3, '0', STR_PAD_LEFT);
 $paymentMethod=av_clean($input['payment_method']??'cash');if(!in_array($paymentMethod,array('cash','card','sbp'),true))$paymentMethod='cash';
+$guestToken=$uid===''?bin2hex(random_bytes(32)):'';
 $order = array(
 'id'=>$id,'created_at'=>date('c'),'updated_at'=>date('c'),'status'=>'new',
 'service'=>av_clean(isset($input['service'])?$input['service']:''),
@@ -43,10 +44,13 @@ $order = array(
 'name'=>av_clean(isset($input['name'])?$input['name']:''),'phone'=>av_clean(isset($input['phone'])?$input['phone']:''),'payment_method'=>$paymentMethod,'payment_status'=>$paymentMethod==='cash'?'cash_due':'unpaid',
 'dispatcher_note'=>'','user_id'=>$uid,'estimated_price'=>av_estimate_price(av_clean(isset($input['service'])?$input['service']:''),0)
 );
+if($guestToken!=='')$order['guest_access_hash']=hash('sha256',$guestToken);
 $workers=av_read_workers();$best=null;$bestIndex=null;$bestDistance=INF;$bestScore=INF;$now=time();if($pickupLat&&$pickupLng){foreach($workers as $workerIndex=>$worker){if(($worker['status']??'')!=='online'||empty($worker['lat'])||empty($worker['lng']))continue;if(!empty($worker['last_seen'])&&$now-strtotime($worker['last_seen'])>180)continue;if(!av_worker_supports_service($worker,$order['service']))continue;$d=av_haversine_km($pickupLat,$pickupLng,(float)$worker['lat'],(float)$worker['lng']);$score=av_dispatch_score($worker,$d);if($score<$bestScore){$bestScore=$score;$bestDistance=$d;$best=$worker;$bestIndex=$workerIndex;}}}
 if($best){$order['assigned_worker_id']=$best['id'];$order['assigned_worker_name']=$best['name']??'';$order['worker_rating']=av_worker_rating($best['id']);$order['status']='offered';$order['offer_created_at']=date('c');$order['estimated_arrival_min']=max(1,(int)ceil(($bestDistance/30)*60));$workers[$bestIndex]['status']='reserved';}else{$order['status']='searching';}
 array_unshift($orders, $order);
 if (!av_write_orders($orders)||($best&&!av_write_workers($workers))) av_json_response(array('ok'=>false,'error'=>'Нет права записи в папку data'),500);
 av_telegram_send("🚨 <b>Новая заявка AV Rescue</b>\n".$id."\n".htmlspecialchars($order['service'])." · ".htmlspecialchars($order['vehicle_type'])."\n".htmlspecialchars($order['address'])."\nКлиент: ".htmlspecialchars($order['name'])." · ".htmlspecialchars($order['phone']));
 if($best)av_push_worker($best['id'],'Новый заказ AV Rescue',$order['service'].' · '.$order['address'],'/worker.php?token='.urlencode($best['token']??''),'order-'.$id);
-av_json_response(array('ok'=>true,'order_id'=>$id));
+$result=array('ok'=>true,'order_id'=>$id,'estimated_price'=>$order['estimated_price'],'payment_method'=>$paymentMethod);
+if($guestToken!=='')$result['guest_status_url']='/guest-payment.php?order='.rawurlencode($id).'&token='.rawurlencode($guestToken);
+av_json_response($result);
