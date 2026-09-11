@@ -5,11 +5,7 @@ on:
     branches:
       - claude/max-excel-evacuation-automation-zxuvb4
     paths:
-      - "webhook/**"
-      - "scripts/**"
-      - "Dockerfile"
-      - "docker-compose.yml"
-      - "requirements.txt"
+      - "runtime-status.txt"
   workflow_dispatch:
 
 concurrency:
@@ -66,7 +62,7 @@ jobs:
              python3 -m venv .venv
              .venv/bin/python -m pip install --upgrade pip
              .venv/bin/pip install -r requirements.txt
-             .venv/bin/pytest -q tests/test_open_jobs_tracker.py tests/test_webhook.py::test_structured_partner_request_fields
+             .venv/bin/pytest -q tests/test_open_jobs_tracker.py tests/test_payroll_employee.py tests/test_webhook.py::test_structured_partner_request_fields
 
              install -d -m 0755 /opt/vladislaw/data/excel
 
