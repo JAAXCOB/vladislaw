@@ -46,7 +46,7 @@ from webhook.max_client import send_message
 from webhook.models import Message
 from webhook.open_jobs_tracker import OpenJobsTracker
 from webhook.payroll_writer import append_salary_row
-from webhook.reporting_rules import is_bot_generated_message
+from webhook.reporting_rules import employee_header, is_bot_generated_message
 
 STATE_PATH = Path(__file__).parent.parent / "data" / "import_state.json"
 MAX_PROCESSED_MIDS = 2000
@@ -272,7 +272,11 @@ def main() -> None:
             if settings.payroll_file_path:
                 try:
                     payroll_sheet, matched, inserted = append_salary_row(
-                        settings.payroll_file_path, job, ts, employee_name, text
+                        settings.payroll_file_path,
+                        job,
+                        ts,
+                        employee_header(employee_name),
+                        text,
                     )
                     if not inserted:
                         print(f"    -> зарплата: такая строка уже есть в '{payroll_sheet}', дубль пропущен")
