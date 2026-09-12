@@ -3,8 +3,14 @@ from datetime import datetime, timezone
 import openpyxl
 
 from webhook.models import Message, User
-from webhook.payroll_writer import _match_employee_column, ensure_employee_column
+from webhook.excel_writer import append_job
+from webhook.payroll_writer import (
+    _match_employee_column,
+    append_salary_row,
+    ensure_employee_column,
+)
 from webhook.reporting_rules import employee_header
+from webhook.schema import ExtractedJob, ServiceItem
 
 
 def test_ensure_employee_column_is_idempotent_and_preserves_existing_data(tmp_path):
@@ -53,3 +59,70 @@ def test_max_sender_keeps_last_name_and_uses_specific_alias():
 
     assert message.effective_sender_name() == "Николай Большаков"
     assert employee_header(message.effective_sender_name()) == "Николай Большаков"
+
+
+def _closed_job(plate: str, amount: int) -> ExtractedJob:
+    return ExtractedJob(
+        is_closed_job_report=True,
+        license_plate=plate,
+        services=[ServiceItem(name="Эвакуация", price_rub=amount)],
+        total_amount_rub=amount,
+        needs_review=False,
+    )
+
+
+def test_edited_message_updates_evacuation_row_without_duplicate(tmp_path):
+    report_path = tmp_path / "evacuation.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Сентябрь 26"
+    sheet.append(["Дата", "VIN/Гос.номер ТС", "Услуга", "Сумма"])
+    workbook.save(report_path)
+
+    timestamp = int(datetime(2026, 9, 12, tzinfo=timezone.utc).timestamp() * 1000)
+    append_job(report_path, _closed_job("А123ВС797", 4500), timestamp, message_id="mid-1")
+    append_job(
+        report_path,
+        _closed_job("А123ВС797", 4590),
+        timestamp,
+        message_id="mid-1",
+        is_edited=True,
+    )
+
+    saved = openpyxl.load_workbook(report_path)
+    saved_sheet = saved["Сентябрь 26"]
+    assert saved_sheet.max_row == 2
+    assert saved_sheet.cell(row=2, column=4).value == 4590
+    assert saved["_MAX_MESSAGE_INDEX"].sheet_state == "veryHidden"
+
+
+def test_edited_message_updates_payroll_amount_without_duplicate(tmp_path):
+    payroll_path = tmp_path / "payroll.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Сентябрь"
+    sheet.append(["Дата", "VIN/Гос.номер ТС", "Услуга", "Макунин Павел", 750])
+    workbook.save(payroll_path)
+
+    timestamp = int(datetime(2026, 9, 12, tzinfo=timezone.utc).timestamp() * 1000)
+    append_salary_row(
+        payroll_path,
+        _closed_job("А123ВС797", 4500),
+        timestamp,
+        "Макунин Павел",
+        message_id="mid-1",
+        is_edited=True,
+    )
+    append_salary_row(
+        payroll_path,
+        _closed_job("А123ВС797", 4590),
+        timestamp,
+        "Макунин Павел",
+        message_id="mid-1",
+    )
+
+    saved = openpyxl.load_workbook(payroll_path)
+    saved_sheet = saved["Сентябрь"]
+    assert saved_sheet.max_row == 2
+    assert saved_sheet.cell(row=2, column=4).value == 4590
+    assert saved["_MAX_MESSAGE_INDEX"].sheet_state == "veryHidden"
