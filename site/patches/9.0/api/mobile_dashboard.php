@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__.'/../config.php';
 require_once __DIR__.'/../partner_orders_helpers.php';
+if(!function_exists('av_worker_loyalty'))av_json_response(array('ok'=>false,'error'=>'SERVER_UPDATE_REQUIRED'),503);
 $p=av_mobile_principal();if(!$p)av_json_response(array('ok'=>false,'error'=>'AUTH_REQUIRED'),401);
 function md_dispatch_orders(){
  $orders=av_read_orders();$workers=av_read_workers();$ordersChanged=false;$workersChanged=false;$now=time();
