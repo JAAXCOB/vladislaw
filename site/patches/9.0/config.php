@@ -2,6 +2,9 @@
 define('AV_DISPATCHER_KEY', '6CdoagqvKzT23miUtrPNPu1nZ0QcwF-n');
 define('AV_ORDER_FILE', __DIR__ . '/data/orders.php');
 date_default_timezone_set('Europe/Moscow');
+ini_set('display_errors', '0');
+ini_set('html_errors', '0');
+error_reporting(E_ALL);
 
 function av_json_response($data, $status = 200) {
     http_response_code($status);
@@ -10,6 +13,16 @@ function av_json_response($data, $status = 200) {
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
+function av_uncaught_exception($error) {
+    error_log('[AV Rescue] Uncaught '.get_class($error).': '.$error->getMessage().' in '.$error->getFile().':'.$error->getLine());
+    $uri=(string)($_SERVER['REQUEST_URI']??'');
+    if(strpos($uri,'/api/')===0) av_json_response(array('ok'=>false,'error'=>'INTERNAL_SERVER_ERROR'),500);
+    http_response_code(500);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Временная ошибка AV Rescue. Повторите попытку позже.';
+    exit;
+}
+set_exception_handler('av_uncaught_exception');
 function av_read_orders() {
     if (!file_exists(AV_ORDER_FILE)) return array();
     $raw = file_get_contents(AV_ORDER_FILE);
