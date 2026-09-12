@@ -8,6 +8,7 @@ function av_verification_settings(){
     $saved=av_secure_read(AV_VERIFICATION_SETTINGS_FILE);
     return array_merge(array(
         'enabled'=>false,
+        'phone_verification_enabled'=>false,
         'sms_provider'=>'smsru',
         'smsru_api_id'=>'',
         'smtp_host'=>'smtp.yandex.ru',
@@ -18,9 +19,10 @@ function av_verification_settings(){
     ),is_array($saved)?$saved:array());
 }
 function av_write_verification_settings($settings){return av_secure_write(AV_VERIFICATION_SETTINGS_FILE,$settings);}
+function av_phone_verification_enabled(){return !empty(av_verification_settings()['phone_verification_enabled']);}
 function av_verification_ready(){
     $s=av_verification_settings();
-    return !empty($s['enabled']) && trim((string)$s['smsru_api_id'])!=='' && trim((string)$s['smtp_app_password'])!=='';
+    return !empty($s['enabled']) && trim((string)$s['smtp_app_password'])!=='' && (empty($s['phone_verification_enabled'])||trim((string)$s['smsru_api_id'])!=='');
 }
 function av_verification_codes(){return av_secure_read(AV_VERIFICATION_CODES_FILE);}
 function av_write_verification_codes($rows){return av_secure_write(AV_VERIFICATION_CODES_FILE,array_values($rows));}
@@ -29,8 +31,9 @@ function av_verification_new_fields(){
     return array('verification_required'=>true,'phone_verified_at'=>'','email_verified_at'=>'','verified_at'=>'','verification_token'=>bin2hex(random_bytes(24)));
 }
 function av_verification_complete($record){
-    return empty($record['verification_required']) || (!empty($record['phone_verified_at'])&&!empty($record['email_verified_at']));
+    return empty($record['verification_required']) || (!empty($record['email_verified_at'])&&(!av_phone_verification_enabled()||!empty($record['phone_verified_at'])));
 }
+function av_verification_next_channel($record){return av_phone_verification_enabled()&&empty($record['phone_verified_at'])?'phone':'email';}
 function av_verification_url($type,$record){
     return '/verify-account.php?type='.rawurlencode($type).'&id='.rawurlencode((string)($record['id']??'')).'&token='.rawurlencode((string)($record['verification_token']??''));
 }
@@ -82,10 +85,11 @@ function av_verification_send_email($email,$code,$settings){
 }
 function av_verification_send($type,$id,$token,$channel){
     if(!in_array($type,array('user','executor','b2b'),true)||!in_array($channel,array('phone','email'),true))return array('ok'=>false,'error'=>'Некорректный запрос.');
+    if($channel==='phone'&&!av_phone_verification_enabled())return array('ok'=>false,'error'=>'Подтверждение телефона по SMS временно отключено.');
     if(!av_verification_ready())return array('ok'=>false,'error'=>'Подтверждение ещё не настроено администратором.');
     if(!av_verification_authorized($type,$id,$token))return array('ok'=>false,'error'=>'Ссылка подтверждения недействительна.');
     $record=av_verification_record($type,$id);if(!$record||av_verification_complete($record))return array('ok'=>true,'complete'=>true);
-    if($channel==='email'&&empty($record['phone_verified_at']))return array('ok'=>false,'error'=>'Сначала подтвердите телефон.');
+    if($channel==='email'&&av_phone_verification_enabled()&&empty($record['phone_verified_at']))return array('ok'=>false,'error'=>'Сначала подтвердите телефон.');
     if($channel==='phone'&&!empty($record['phone_verified_at']))return array('ok'=>true,'already_verified'=>true);
     if($channel==='email'&&!empty($record['email_verified_at']))return array('ok'=>true,'already_verified'=>true);
     $recipient=$channel==='phone'?av_verification_phone($record['phone']??''):strtolower(trim((string)($record['email']??'')));
@@ -101,6 +105,7 @@ function av_verification_send($type,$id,$token,$channel){
     return array('ok'=>true,'masked'=>av_verification_mask($recipient,$channel));
 }
 function av_verification_confirm($type,$id,$token,$channel,$code){
+    if($channel==='phone'&&!av_phone_verification_enabled())return array('ok'=>false,'error'=>'Подтверждение телефона по SMS временно отключено.');
     if(!av_verification_authorized($type,$id,$token))return array('ok'=>false,'error'=>'Ссылка подтверждения недействительна.');
     $key=$type.'|'.$id.'|'.$channel;$rows=av_verification_codes();$found=-1;
     foreach($rows as $i=>$row)if(($row['key']??'')===$key){$found=$i;break;}
@@ -109,7 +114,7 @@ function av_verification_confirm($type,$id,$token,$channel,$code){
     $attempts=(int)($row['attempts']??0)+1;if($attempts>5){unset($rows[$found]);av_write_verification_codes($rows);return array('ok'=>false,'error'=>'Слишком много попыток. Запросите новый код.');}
     if(!preg_match('/^\d{6}$/',(string)$code)||!password_verify((string)$code,(string)$row['code_hash'])){$rows[$found]['attempts']=$attempts;av_write_verification_codes($rows);return array('ok'=>false,'error'=>'Неверный код.');}
     unset($rows[$found]);av_write_verification_codes($rows);$field=$channel==='phone'?'phone_verified_at':'email_verified_at';$fields=array($field=>date('c'));
-    $record=av_verification_record($type,$id);if($channel==='email'&&!empty($record['phone_verified_at']))$fields['verified_at']=date('c');
+    $record=av_verification_record($type,$id);if($channel==='email'&&(!av_phone_verification_enabled()||!empty($record['phone_verified_at'])))$fields['verified_at']=date('c');
     av_verification_update($type,$id,$fields);av_audit('contact_verified',$type.':'.$id,array('channel'=>$channel));$record=av_verification_record($type,$id);
     return array('ok'=>true,'complete'=>av_verification_complete($record));
 }
