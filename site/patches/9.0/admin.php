@@ -37,9 +37,10 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     else{
       $settings=av_verification_settings();$settings['smsru_api_id']=trim((string)($_POST['smsru_api_id']??''));
       $newPassword=(string)($_POST['smtp_app_password']??'');if($newPassword!=='')$settings['smtp_app_password']=$newPassword;
-      $settings['enabled']=!empty($_POST['enabled']);$settings['smtp_host']='smtp.yandex.ru';$settings['smtp_port']=465;$settings['smtp_username']='AVRDriver@yandex.ru';$settings['from_email']='AVRDriver@yandex.ru';
-      if($settings['enabled']&&($settings['smsru_api_id']===''||$settings['smtp_app_password']===''))$err='Для включения укажите API ID SMS.RU и пароль приложения Яндекс Почты.';
-      elseif(av_write_verification_settings($settings)){$msg=$settings['enabled']?'Подтверждение телефона и почты включено для новых аккаунтов.':'Настройки сохранены, обязательная проверка пока выключена.';av_audit('verification_settings_updated','',array('enabled'=>$settings['enabled']));}
+      $settings['enabled']=!empty($_POST['enabled']);$settings['phone_verification_enabled']=!empty($_POST['phone_verification_enabled']);$settings['smtp_host']='smtp.yandex.ru';$settings['smtp_port']=465;$settings['smtp_username']='AVRDriver@yandex.ru';$settings['from_email']='AVRDriver@yandex.ru';
+      if($settings['enabled']&&$settings['smtp_app_password']==='')$err='Для включения укажите пароль приложения Яндекс Почты.';
+      elseif($settings['enabled']&&$settings['phone_verification_enabled']&&$settings['smsru_api_id']==='')$err='Для проверки телефона укажите API ID SMS.RU.';
+      elseif(av_write_verification_settings($settings)){$msg=$settings['enabled']?($settings['phone_verification_enabled']?'Подтверждение телефона и почты включено для новых аккаунтов.':'Подтверждение почты включено; SMS-проверка временно отключена.'):'Настройки сохранены, обязательная проверка пока выключена.';av_audit('verification_settings_updated','',array('enabled'=>$settings['enabled'],'phone_verification_enabled'=>$settings['phone_verification_enabled']));}
       else$err='Не удалось сохранить настройки подтверждения.';
     }
   } elseif($action==='save_payment_settings'){
@@ -73,7 +74,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
           }
         }
         if(!$found)$err='Пользователь не найден.';
-        elseif($role!==''&&!av_verification_complete($users[$k]))$err='Сначала пользователь должен подтвердить телефон и почту.';
+        elseif($role!==''&&!av_verification_complete($users[$k]))$err='Сначала пользователь должен подтвердить почту.';
         elseif(av_write_users($users))$msg=$role?('Роль назначена: '.($role==='admin'?'Администратор':'Диспетчер')):'Роль сотрудника снята.';
         else $err='Не удалось сохранить роль.';
       }
@@ -163,7 +164,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     $b2bId=trim((string)($_POST['b2b_id']??''));$decision=trim((string)($_POST['decision']??''));$reason=trim((string)($_POST['reason']??''));$b2b=av_read_b2b();$found=false;
     foreach($b2b as &$partner){
       if((string)($partner['id']??'')!==$b2bId)continue;$found=true;
-      if($decision==='approve'&&!av_verification_complete($partner))$err='Нельзя одобрить B2B-аккаунт: телефон и почта ещё не подтверждены.';
+      if($decision==='approve'&&!av_verification_complete($partner))$err='Нельзя одобрить B2B-аккаунт: почта ещё не подтверждена.';
       elseif($decision==='approve'){$partner['approved']=true;$partner['review_status']='approved';$partner['approved_at']=date('c');$partner['approved_by']=$me['id']??'';unset($partner['rejection_reason'],$partner['rejected_at'],$partner['rejected_by']);}
       elseif($decision==='reject'&&mb_strlen($reason)>=5){$partner['approved']=false;$partner['review_status']='rejected';$partner['rejection_reason']=$reason;$partner['rejected_at']=date('c');$partner['rejected_by']=$me['id']??'';}
       else $err='Для отклонения укажите причину не короче 5 символов.';break;
@@ -206,15 +207,15 @@ $guest=array();foreach($orders as $o){if(empty($o['user_id'])&&empty($o['guest_d
 }
 </style><div class="w"><div class="top"><div class="brand">AV<b>R</b> Главный администратор</div><div class="nav"><a class="btn" href="/fleet.php">Транспорт</a><a href="/dispatcher.php">Диспетчерская</a><a class="btn" href="/">Сайт</a><a class="btn" href="/staff-logout.php">Выйти</a></div></div>
 <?php if($msg):?><p class="ok"><?php echo htmlspecialchars($msg);?></p><?php endif;?><?php if($err):?><p class="err"><?php echo htmlspecialchars($err);?></p><?php endif;?>
-<div class="grid"><section class="card" style="grid-column:1/-1"><h2>Подтверждение телефона и почты</h2>
-<p class="muted">Для всех новых клиентов, водителей, B2B и будущих сотрудников. Порядок: SMS → письмо → для водителя/B2B модерация администратора. Действующие аккаунты не блокируются.</p>
-<p class="<?php echo av_verification_ready()?'ok':'err';?>"><?php echo av_verification_ready()?'Система настроена и включена.':'Система пока не включена: заполните оба защищённых ключа.';?></p>
-<?php if(av_is_superadmin()):?><form method="post"><input type="hidden" name="csrf" value="<?php echo htmlspecialchars(av_csrf());?>"><input type="hidden" name="action" value="save_verification_settings"><div class="form" style="grid-template-columns:1fr 1fr auto"><input name="smsru_api_id" placeholder="API ID SMS.RU" value="<?php echo htmlspecialchars($verificationSettings['smsru_api_id']??'');?>"><input type="password" name="smtp_app_password" autocomplete="new-password" placeholder="Пароль приложения Яндекс (оставьте пустым, чтобы не менять)"><label style="display:flex;align-items:center;gap:8px"><input style="width:auto" type="checkbox" name="enabled" value="1" <?php echo !empty($verificationSettings['enabled'])?'checked':'';?>> Включить</label></div><p class="muted">Отправитель писем: AVRDriver@yandex.ru. Секреты на странице повторно не показываются.</p><button class="red">Сохранить настройки</button></form><?php endif;?></section><section class="card"><h2>Администраторы и диспетчеры</h2>
+<div class="grid"><section class="card" style="grid-column:1/-1"><h2>Подтверждение почты</h2>
+<p class="muted">Для всех новых клиентов, водителей, B2B и будущих сотрудников. Сейчас обязательна только проверка email; SMS-функция сохранена и может быть включена позже. После подтверждения почты водитель/B2B проходит модерацию администратора.</p>
+<p class="<?php echo av_verification_ready()?'ok':'err';?>"><?php echo av_verification_ready()?'Проверка email настроена и включена.':'Система пока не включена: укажите пароль приложения Яндекс Почты.';?></p>
+<?php if(av_is_superadmin()):?><form method="post"><input type="hidden" name="csrf" value="<?php echo htmlspecialchars(av_csrf());?>"><input type="hidden" name="action" value="save_verification_settings"><div class="form" style="grid-template-columns:1fr 1fr auto"><input name="smsru_api_id" placeholder="API ID SMS.RU (для будущего включения)" value="<?php echo htmlspecialchars($verificationSettings['smsru_api_id']??'');?>"><input type="password" name="smtp_app_password" autocomplete="new-password" placeholder="Пароль приложения Яндекс (оставьте пустым, чтобы не менять)"><label style="display:flex;align-items:center;gap:8px"><input style="width:auto" type="checkbox" name="enabled" value="1" <?php echo !empty($verificationSettings['enabled'])?'checked':'';?>> Проверять email</label><label style="display:flex;align-items:center;gap:8px"><input style="width:auto" type="checkbox" name="phone_verification_enabled" value="1" <?php echo !empty($verificationSettings['phone_verification_enabled'])?'checked':'';?>> Проверять телефон по SMS</label></div><p class="muted">Отправитель писем: AVRDriver@yandex.ru. SMS-проверка сейчас выключена. Секреты на странице повторно не показываются.</p><button class="red">Сохранить настройки</button></form><?php endif;?></section><section class="card"><h2>Администраторы и диспетчеры</h2>
 <p class="muted">Роль назначается уже существующему личному аккаунту. Отдельная повторная регистрация сотрудника больше не нужна.</p>
 <?php foreach($users as $u): $role=$u['staff_role']??''; ?>
 <div class="row"><div>
 <b><?php echo htmlspecialchars($u['name']??'');?></b> · <?php echo htmlspecialchars($u['phone']??'');?><br>
-<span class="muted">ID <?php echo htmlspecialchars($u['id']??'');?> · логин <?php echo htmlspecialchars($u['login']??'');?></span><br><span class="badge <?php echo av_verification_complete($u)?'active':'blocked';?>"><?php echo av_verification_complete($u)?'Контакты подтверждены':'Телефон/почта не подтверждены';?></span><br>
+<span class="muted">ID <?php echo htmlspecialchars($u['id']??'');?> · логин <?php echo htmlspecialchars($u['login']??'');?></span><br><span class="badge <?php echo av_verification_complete($u)?'active':'blocked';?>"><?php echo av_verification_complete($u)?'Почта подтверждена':'Почта не подтверждена';?></span><br>
 <?php if($role):?><span class="badge <?php echo empty($u['staff_disabled'])?'active':'blocked';?>"><?php echo $role==='admin'?'Администратор':'Диспетчер';?> · <?php echo empty($u['staff_disabled'])?'доступ включён':'доступ отключён';?></span><?php else:?><span class="muted">Обычный пользователь</span><?php endif;?>
 </div>
 <?php if(av_is_superadmin()):?><div>
