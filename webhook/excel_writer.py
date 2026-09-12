@@ -45,6 +45,12 @@ DATE_FORMAT = "mm-dd-yy"
 # Light fill for rows that need human re-checking (needs_review=True)
 REVIEW_FILL = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
 
+# Stable MAX message id -> Excel row mapping.  The index lives inside each
+# workbook so it survives service restarts without changing the visible report
+# layout.  It is hidden from users opening the workbook in Excel.
+MESSAGE_INDEX_SHEET = "_MAX_MESSAGE_INDEX"
+MESSAGE_INDEX_HEADERS = ("message_id", "sheet", "row")
+
 
 def _first_empty_row(ws: Worksheet, key_column: int = 1) -> int:
     """
@@ -136,6 +142,97 @@ def _date_value(value: object):
     return value
 
 
+def _message_index_sheet(
+    wb: openpyxl.Workbook,
+    *,
+    create: bool = False,
+) -> Worksheet | None:
+    if MESSAGE_INDEX_SHEET in wb.sheetnames:
+        ws = wb[MESSAGE_INDEX_SHEET]
+    elif create:
+        ws = wb.create_sheet(MESSAGE_INDEX_SHEET)
+        for column, header in enumerate(MESSAGE_INDEX_HEADERS, 1):
+            ws.cell(row=1, column=column).value = header
+    else:
+        return None
+    ws.sheet_state = "veryHidden"
+    return ws
+
+
+def _find_message_row(
+    wb: openpyxl.Workbook,
+    message_id: str,
+) -> tuple[Worksheet, int] | None:
+    """Resolve a previously written MAX message to its original report row."""
+    if not message_id:
+        return None
+    index = _message_index_sheet(wb)
+    if index is None:
+        return None
+    for row in range(2, index.max_row + 1):
+        if str(index.cell(row=row, column=1).value or "") != message_id:
+            continue
+        sheet_name = str(index.cell(row=row, column=2).value or "")
+        target_row = index.cell(row=row, column=3).value
+        if sheet_name in wb.sheetnames and isinstance(target_row, int) and target_row >= 2:
+            return wb[sheet_name], target_row
+        return None
+    return None
+
+
+def _remember_message_row(
+    wb: openpyxl.Workbook,
+    message_id: str,
+    sheet_name: str,
+    target_row: int,
+) -> None:
+    if not message_id:
+        return
+    index = _message_index_sheet(wb, create=True)
+    assert index is not None
+    index_row = None
+    for row in range(2, index.max_row + 1):
+        if str(index.cell(row=row, column=1).value or "") == message_id:
+            index_row = row
+            break
+    if index_row is None:
+        index_row = _first_empty_row(index)
+    index.cell(row=index_row, column=1).value = message_id
+    index.cell(row=index_row, column=2).value = sheet_name
+    index.cell(row=index_row, column=3).value = target_row
+
+
+def _rows_for_date_and_plate(ws: Worksheet, job_date, plate: str) -> list[int]:
+    normalized_plate = plate.strip().upper()
+    return [
+        row
+        for row in range(2, ws.max_row + 1)
+        if _date_value(ws.cell(row=row, column=1).value) == job_date
+        and str(ws.cell(row=row, column=2).value or "").strip().upper()
+        == normalized_plate
+    ]
+
+
+def _write_job_row(
+    ws: Worksheet,
+    target_row: int,
+    job_date,
+    plate: str,
+    service_text: str,
+    amount: int | None,
+    needs_review: bool,
+) -> None:
+    row = [job_date, plate, service_text, amount]
+    for col_idx, value in enumerate(row, 1):
+        ws.cell(row=target_row, column=col_idx).value = value
+    for col in range(1, 5):
+        cell = ws.cell(row=target_row, column=col)
+        cell.font = DEFAULT_FONT
+        cell.alignment = CENTER_ALIGN
+        cell.fill = REVIEW_FILL if needs_review else PatternFill()
+    ws.cell(row=target_row, column=1).number_format = DATE_FORMAT
+
+
 def _find_duplicate_row(
     ws: Worksheet,
     job_date,
@@ -158,6 +255,8 @@ def append_job(
     job: ExtractedJob,
     message_timestamp_ms: int,
     original_text: str = "",
+    message_id: str = "",
+    is_edited: bool = False,
 ) -> tuple[str, bool]:
     """
     Append one row to the appropriate monthly sheet, chosen automatically
@@ -186,8 +285,71 @@ def append_job(
     service_text = _format_services(job) or original_text[:60]
     amount = job.total_amount_rub
 
+    indexed = _find_message_row(wb, message_id)
+    if indexed is not None:
+        indexed_ws, target_row = indexed
+        original_date = _date_value(indexed_ws.cell(row=target_row, column=1).value) or dt.date()
+        _write_job_row(
+            indexed_ws,
+            target_row,
+            original_date,
+            plate,
+            service_text,
+            amount,
+            job.needs_review,
+        )
+        wb.save(path)
+        log.info(
+            "EXCEL MESSAGE UPDATED | sheet='%s' | row=%d | mid=%s | plate=%s | amount=%s",
+            indexed_ws.title,
+            target_row,
+            message_id,
+            plate,
+            amount,
+        )
+        return indexed_ws.title, False
+
+    # Workbooks written before the message index was introduced can still be
+    # adopted safely when date + plate identify exactly one row.  If multiple
+    # rows already exist, do not create a third duplicate and do not guess.
+    if message_id and is_edited:
+        legacy_rows = _rows_for_date_and_plate(ws, dt.date(), plate)
+        if len(legacy_rows) == 1:
+            target_row = legacy_rows[0]
+            _write_job_row(
+                ws,
+                target_row,
+                dt.date(),
+                plate,
+                service_text,
+                amount,
+                job.needs_review,
+            )
+            _remember_message_row(wb, message_id, ws.title, target_row)
+            wb.save(path)
+            log.info(
+                "EXCEL LEGACY ROW UPDATED | sheet='%s' | row=%d | mid=%s | plate=%s",
+                ws.title,
+                target_row,
+                message_id,
+                plate,
+            )
+            return ws.title, False
+        if len(legacy_rows) > 1:
+            log.warning(
+                "EXCEL AMBIGUOUS EDIT SKIPPED | sheet='%s' | mid=%s | plate=%s | rows=%s",
+                ws.title,
+                message_id,
+                plate,
+                legacy_rows,
+            )
+            return ws.title, False
+
     duplicate_row = _find_duplicate_row(ws, dt.date(), plate, amount)
     if duplicate_row is not None:
+        _remember_message_row(wb, message_id, ws.title, duplicate_row)
+        if message_id:
+            wb.save(path)
         log.info(
             "EXCEL DUPLICATE SKIPPED | sheet='%s' | row=%d | plate=%s | amount=%s",
             sheet_name,
@@ -198,19 +360,16 @@ def append_job(
         return sheet_name, False
 
     target_row = _first_empty_row(ws)
-    row = [dt.date(), plate, service_text, amount]
-    for col_idx, value in enumerate(row, 1):
-        ws.cell(row=target_row, column=col_idx).value = value
-
-    # Apply the same style as existing rows: Calibri 11, centered, mm-dd-yy dates
-    for col in range(1, 5):
-        cell = ws.cell(row=target_row, column=col)
-        cell.font = DEFAULT_FONT
-        cell.alignment = CENTER_ALIGN
-        if job.needs_review:
-            cell.fill = REVIEW_FILL
-
-    ws.cell(row=target_row, column=1).number_format = DATE_FORMAT
+    _write_job_row(
+        ws,
+        target_row,
+        dt.date(),
+        plate,
+        service_text,
+        amount,
+        job.needs_review,
+    )
+    _remember_message_row(wb, message_id, ws.title, target_row)
 
     wb.save(path)
 
