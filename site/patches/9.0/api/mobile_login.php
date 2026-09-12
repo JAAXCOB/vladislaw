@@ -53,7 +53,7 @@ if($allowDriver)foreach(av_read_workers() as $w){
         || (!empty($w['email']) && strtolower((string)$w['email'])===strtolower($login));
 
     if($matches && !empty($w['password_hash']) && password_verify($pass,(string)$w['password_hash'])){
-        if(!av_verification_complete($w))av_json_response(array('ok'=>false,'error'=>'Подтвердите телефон и почту','verification_required'=>true,'account_type'=>'executor','id'=>$w['id'],'verification_token'=>$w['verification_token']??'','next_channel'=>empty($w['phone_verified_at'])?'phone':'email'),403);
+        if(!av_verification_complete($w))av_json_response(array('ok'=>false,'error'=>'Подтвердите почту','verification_required'=>true,'account_type'=>'executor','id'=>$w['id'],'verification_token'=>$w['verification_token']??'','next_channel'=>av_verification_next_channel($w)),403);
         $linkedUser=!empty($w['user_id'])?av_user_by_id($w['user_id']):null;
         $linkedStaffRole=$linkedUser&&empty($linkedUser['staff_disabled'])?($linkedUser['staff_role']??null):null;
         if(empty($w['approved'])&&!$linkedStaffRole){$rejected=(($w['review_status']??'')==='rejected');$message=$rejected?'Регистрация отклонена. Причина: '.($w['rejection_reason']??'Исправьте данные анкеты.').' Войдите на сайт AV Rescue и отправьте исправления из профиля.':'Аккаунт исполнителя ещё не подтверждён';av_json_response(array('ok'=>false,'error'=>$message,'moderation_status'=>$w['review_status']??'review','rejection_reason'=>$w['rejection_reason']??''),403);}
@@ -83,7 +83,7 @@ foreach(av_read_users() as $u){
 
     if($matches && password_verify($pass,(string)($u['password_hash']??''))){
         if(!empty($u['blocked']))av_json_response(array('ok'=>false,'error'=>'Аккаунт заблокирован'),403);
-        if(!av_verification_complete($u))av_json_response(array('ok'=>false,'error'=>'Подтвердите телефон и почту','verification_required'=>true,'account_type'=>'user','id'=>$u['id'],'verification_token'=>$u['verification_token']??'','next_channel'=>empty($u['phone_verified_at'])?'phone':'email'),403);
+        if(!av_verification_complete($u))av_json_response(array('ok'=>false,'error'=>'Подтвердите почту','verification_required'=>true,'account_type'=>'user','id'=>$u['id'],'verification_token'=>$u['verification_token']??'','next_channel'=>av_verification_next_channel($u)),403);
 
         $w=av_worker_by_user_id($u['id']??'');
         $staffRole=!empty($u['staff_disabled'])?null:($u['staff_role']??null);
@@ -115,7 +115,7 @@ if($allowDriver)foreach(av_read_workers() as $w){
         || (!empty($w['email']) && strtolower((string)$w['email'])===strtolower($login));
 
     if($matches && !empty($w['password_hash']) && password_verify($pass,(string)$w['password_hash'])){
-        if(!av_verification_complete($w))av_json_response(array('ok'=>false,'error'=>'Подтвердите телефон и почту','verification_required'=>true,'account_type'=>'executor','id'=>$w['id'],'verification_token'=>$w['verification_token']??'','next_channel'=>empty($w['phone_verified_at'])?'phone':'email'),403);
+        if(!av_verification_complete($w))av_json_response(array('ok'=>false,'error'=>'Подтвердите почту','verification_required'=>true,'account_type'=>'executor','id'=>$w['id'],'verification_token'=>$w['verification_token']??'','next_channel'=>av_verification_next_channel($w)),403);
         if(empty($w['approved'])){$rejected=(($w['review_status']??'')==='rejected');$message=$rejected?'Регистрация отклонена. Причина: '.($w['rejection_reason']??'Исправьте данные анкеты.').' Войдите на сайт AV Rescue и отправьте исправления из профиля.':'Аккаунт исполнителя ещё не подтверждён';av_json_response(array('ok'=>false,'error'=>$message,'moderation_status'=>$w['review_status']??'review','rejection_reason'=>$w['rejection_reason']??''),403);}
 
         // If this worker is already linked to a unified user, issue a user token.
@@ -142,7 +142,7 @@ if($allowClient)foreach(av_read_b2b() as $b){
         || (!empty($b['email']) && strtolower((string)$b['email'])===strtolower($login));
 
     if($matches && password_verify($pass,(string)($b['password_hash']??''))){
-        if(!av_verification_complete($b))av_json_response(array('ok'=>false,'error'=>'Подтвердите телефон и почту','verification_required'=>true,'account_type'=>'b2b','id'=>$b['id'],'verification_token'=>$b['verification_token']??'','next_channel'=>empty($b['phone_verified_at'])?'phone':'email'),403);
+        if(!av_verification_complete($b))av_json_response(array('ok'=>false,'error'=>'Подтвердите почту','verification_required'=>true,'account_type'=>'b2b','id'=>$b['id'],'verification_token'=>$b['verification_token']??'','next_channel'=>av_verification_next_channel($b)),403);
         if(empty($b['approved']))av_json_response(array('ok'=>false,'error'=>'B2B аккаунт ожидает подтверждения'),403);
 
         av_mobile_success(
