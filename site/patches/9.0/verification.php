@@ -20,6 +20,7 @@ function av_verification_settings(){
 }
 function av_write_verification_settings($settings){return av_secure_write(AV_VERIFICATION_SETTINGS_FILE,$settings);}
 function av_phone_verification_enabled(){return !empty(av_verification_settings()['phone_verification_enabled']);}
+function av_verification_enabled(){return !empty(av_verification_settings()['enabled']);}
 function av_verification_ready(){
     $s=av_verification_settings();
     return !empty($s['enabled']) && trim((string)$s['smtp_app_password'])!=='' && (empty($s['phone_verification_enabled'])||trim((string)$s['smsru_api_id'])!=='');
@@ -31,7 +32,10 @@ function av_verification_new_fields(){
     return array('verification_required'=>true,'phone_verified_at'=>'','email_verified_at'=>'','verified_at'=>'','verification_token'=>bin2hex(random_bytes(24)));
 }
 function av_verification_complete($record){
-    return empty($record['verification_required']) || (!empty($record['email_verified_at'])&&(!av_phone_verification_enabled()||!empty($record['phone_verified_at'])));
+    // A global pause must also release accounts that were created while
+    // verification was enabled. Their verification fields are preserved so
+    // the requirement can be restored later without deleting any data.
+    return !av_verification_enabled() || empty($record['verification_required']) || (!empty($record['email_verified_at'])&&(!av_phone_verification_enabled()||!empty($record['phone_verified_at'])));
 }
 function av_verification_next_channel($record){return av_phone_verification_enabled()&&empty($record['phone_verified_at'])?'phone':'email';}
 function av_verification_url($type,$record){
