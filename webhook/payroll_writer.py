@@ -24,7 +24,14 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
 
-from webhook.excel_writer import _date_value, _first_empty_row, _format_services
+from webhook.excel_writer import (
+    _date_value,
+    _find_message_row,
+    _first_empty_row,
+    _format_services,
+    _remember_message_row,
+    _rows_for_date_and_plate,
+)
 from webhook.schema import ExtractedJob
 
 log = logging.getLogger("max_webhook.payroll")
@@ -294,6 +301,8 @@ def append_salary_row(
     message_timestamp_ms: int,
     employee_name: str,
     original_text: str = "",
+    message_id: str = "",
+    is_edited: bool = False,
 ) -> tuple[str, bool, bool]:
     """
     Appends one row to the shared monthly payroll sheet: Дата/VIN/Услуга
@@ -325,11 +334,80 @@ def append_salary_row(
 
     matched_col = _match_employee_column(ws, employee_name) if amount is not None else None
 
+    def update_row(target_ws: Worksheet, target_row: int, job_date) -> bool:
+        target_matched_col = (
+            _match_employee_column(target_ws, employee_name)
+            if amount is not None
+            else None
+        )
+        target_ws.cell(row=target_row, column=1).value = job_date
+        target_ws.cell(row=target_row, column=2).value = plate
+        target_ws.cell(row=target_row, column=3).value = service_text
+        # An edit may change either the amount or the employee match. Remove
+        # the old automated value before writing the current one. Numeric
+        # protected columns (for example the column headed 750) are untouched.
+        for employee_col in _employee_columns(target_ws):
+            target_ws.cell(row=target_row, column=employee_col).value = None
+        if target_matched_col is not None:
+            target_ws.cell(row=target_row, column=target_matched_col).value = amount
+        matched_now = target_matched_col is not None
+        for col in range(1, target_ws.max_column + 1):
+            cell = target_ws.cell(row=target_row, column=col)
+            cell.font = DEFAULT_FONT
+            cell.alignment = CENTER_ALIGN
+            cell.fill = PatternFill() if matched_now else REVIEW_FILL
+        target_ws.cell(row=target_row, column=1).number_format = DATE_FORMAT
+        return matched_now
+
+    indexed = _find_message_row(wb, message_id)
+    if indexed is not None:
+        indexed_ws, target_row = indexed
+        original_date = _date_value(indexed_ws.cell(row=target_row, column=1).value) or dt.date()
+        matched = update_row(indexed_ws, target_row, original_date)
+        wb.save(path)
+        log.info(
+            "PAYROLL MESSAGE UPDATED | sheet='%s' | row=%d | mid=%s | plate=%s | employee=%s",
+            indexed_ws.title,
+            target_row,
+            message_id,
+            plate,
+            employee_name,
+        )
+        return indexed_ws.title, matched, False
+
+    if message_id and is_edited:
+        legacy_rows = _rows_for_date_and_plate(ws, dt.date(), plate)
+        if len(legacy_rows) == 1:
+            target_row = legacy_rows[0]
+            matched = update_row(ws, target_row, dt.date())
+            _remember_message_row(wb, message_id, ws.title, target_row)
+            wb.save(path)
+            log.info(
+                "PAYROLL LEGACY ROW UPDATED | sheet='%s' | row=%d | mid=%s | plate=%s",
+                ws.title,
+                target_row,
+                message_id,
+                plate,
+            )
+            return ws.title, matched, False
+        if len(legacy_rows) > 1:
+            log.warning(
+                "PAYROLL AMBIGUOUS EDIT SKIPPED | sheet='%s' | mid=%s | plate=%s | rows=%s",
+                ws.title,
+                message_id,
+                plate,
+                legacy_rows,
+            )
+            return ws.title, matched_col is not None, False
+
     duplicate_row = _find_duplicate_row(
         ws, dt.date(), plate, service_text, matched_col, amount
     )
     if duplicate_row is not None:
         matched = matched_col is not None
+        _remember_message_row(wb, message_id, ws.title, duplicate_row)
+        if message_id:
+            wb.save(path)
         log.info(
             "PAYROLL DUPLICATE SKIPPED | sheet='%s' | row=%d | plate=%s | employee=%s",
             sheet_name,
@@ -349,6 +427,8 @@ def append_salary_row(
     target_row = _first_empty_row(ws)
     for col_idx, value in enumerate(row_values, 1):
         ws.cell(row=target_row, column=col_idx).value = value
+
+    _remember_message_row(wb, message_id, ws.title, target_row)
 
     matched = matched_col is not None
 
