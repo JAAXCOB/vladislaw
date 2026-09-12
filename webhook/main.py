@@ -78,6 +78,7 @@ def process_message(
     timestamp_ms: int,
     chat_id: int | None,
     message_id: str | None,
+    is_edited: bool = False,
 ) -> None:
     """
     Runs AI extraction and writes the result to Excel (and payroll, if configured).
@@ -104,11 +105,18 @@ def process_message(
         return
 
     try:
-        sheet, inserted = append_job(settings.excel_file_path, job, timestamp_ms, text)
+        sheet, inserted = append_job(
+            settings.excel_file_path,
+            job,
+            timestamp_ms,
+            text,
+            message_id or "",
+            is_edited,
+        )
         if inserted:
             log.info("Written to sheet '%s' (needs_review=%s)", sheet, job.needs_review)
         else:
-            log.info("Duplicate already exists in sheet '%s' — skipped", sheet)
+            log.info("Existing MAX message in sheet '%s' was updated or skipped", sheet)
     except Exception:
         log.exception("Failed to write to Excel for message: %r", text)
         return
@@ -121,6 +129,8 @@ def process_message(
                 timestamp_ms,
                 employee_header(employee_name),
                 text,
+                message_id or "",
+                is_edited,
             )
             log.info(
                 "Payroll sheet '%s' (employee=%s, matched=%s, inserted=%s)",
@@ -203,6 +213,7 @@ async def webhook(
                 update.timestamp,
                 chat_id,
                 mid,
+                update.update_type == UpdateType.message_edited,
             )
     else:
         log.info("UPDATE type=%s | timestamp=%s", update.update_type, update.timestamp)
