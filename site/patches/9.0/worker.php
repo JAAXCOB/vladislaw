@@ -80,21 +80,29 @@ async function loadPartnerOrders(){
  }catch(e){stateEl.textContent='Нет связи с заявками. Повторите обновление.'}
 }
 async function partnerAct(id,action){const r=await fetch('api/partner_order_action.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,order_id:id,action})}),d=await r.json();if(!d.ok){alert(d.error==='ALREADY_CLAIMED'?'Заявку уже взял '+(d.worker||'другой водитель'):(d.error||'Не удалось изменить заявку'));return}loadPartnerOrders()}
-async function sendLoc(lat,lng,status){await fetch('api/worker_location.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,lat,lng,status})})}
-async function start(){
- if(!navigator.geolocation){alert('Геолокация не поддерживается');return}
- online=true;lineBtn.textContent='Уйти с линии';lineBtn.classList.remove('red');
- if(window.AVRPWA) window.AVRPWA.keepAwake(true);
- watch=navigator.geolocation.watchPosition(async p=>{coords.textContent=p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5);let n=Date.now();if(n-lastSent>15000){lastSent=n;await sendLoc(p.coords.latitude,p.coords.longitude,'online');load();loadTeamMap();loadPartnerOrders()}},()=>alert('Разрешите доступ к геолокации'),{enableHighAccuracy:true,maximumAge:10000,timeout:15000});
+async function sendLoc(lat,lng,status){const r=await fetch('api/worker_location.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,lat,lng,status})});if(!r.ok)throw new Error('LOCATION_UPDATE_FAILED');return r.json()}
+function lineUi(value){const changed=online!==value;online=value;lineBtn.textContent=value?'Уйти с линии':'Выйти на линию';lineBtn.classList.toggle('red',!value);if(changed&&window.AVRPWA)window.AVRPWA.keepAwake(value)}
+async function acceptPosition(p){
+ coords.textContent=p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5)+' · '+Math.round(p.coords.accuracy||0)+' м';
+ const n=Date.now();if(n-lastSent<8000)return;lastSent=n;
+ try{await sendLoc(p.coords.latitude,p.coords.longitude,'online');lineUi(true);load();loadTeamMap();loadPartnerOrders()}catch(e){coords.textContent+=' · нет связи'}
 }
-async function stop(){online=false;if(watch!==null)navigator.geolocation.clearWatch(watch);watch=null;if(window.AVRPWA)window.AVRPWA.keepAwake(false);await sendLoc('','','offline');lineBtn.textContent='Выйти на линию';lineBtn.classList.add('red');load();loadTeamMap()}
+function start(silent=false){
+ if(!navigator.geolocation){alert('Геолокация не поддерживается');return}
+ lineUi(true);if(watch!==null)navigator.geolocation.clearWatch(watch);
+ const options={enableHighAccuracy:true,maximumAge:3000,timeout:12000};
+ const failed=()=>{if(!silent)alert('Разрешите точную геолокацию для AV Rescue');coords.textContent='Ожидаем точную геопозицию…'};
+ navigator.geolocation.getCurrentPosition(acceptPosition,failed,options);
+ watch=navigator.geolocation.watchPosition(acceptPosition,failed,options);
+}
+async function stop(){lineUi(false);if(watch!==null)navigator.geolocation.clearWatch(watch);watch=null;await sendLoc('','','offline');load();loadTeamMap()}
 lineBtn.onclick=()=>online?stop():start();
 notifyBtn.onclick=async()=>{try{if(!window.AVRPWA)throw new Error('Обновите страницу');await window.AVRPWA.enablePush(TOKEN);notifyBtn.textContent='Уведомления включены';notifyBtn.disabled=true;window.AVRPWA.toast('Уведомления о заказах включены')}catch(e){alert(e.message)}};
 window.addEventListener('load',()=>{if(window.AVRPWA&&window.AVRPWA.pushEnabled()){notifyBtn.textContent='Уведомления включены';notifyBtn.disabled=true}});
 
 async function load(){
  let r=await fetch('api/worker_orders.php?token='+encodeURIComponent(TOKEN),{cache:'no-store'});let d=await r.json();if(!d.ok)return;
- currentWorker=d.worker;state.textContent=statusRu(d.worker.status);state.className='pill '+d.worker.status;
+ currentWorker=d.worker;const serverOnline=['online','reserved','busy'].includes(d.worker.status);lineUi(serverOnline);if(serverOnline&&watch===null&&document.visibilityState==='visible')start(true);state.textContent=statusRu(d.worker.status);state.className='pill '+d.worker.status;
  orders.innerHTML=d.orders.length?d.orders.map(o=>{
    const offered=o.status==='offered';
    let buttons=offered?`<div class="two"><button class="btn green" onclick="act('${esc(o.id)}','accept')">Принять</button><button class="btn" onclick="act('${esc(o.id)}','reject')">Отказаться</button></div>`:
@@ -105,6 +113,8 @@ async function load(){
 async function act(id,action){let r=await fetch('api/worker_action.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,order_id:id,action})});let d=await r.json();if(!d.ok)alert(d.error);load()}
 async function loadFinance(){let r=await fetch('api/worker_finance.php?token='+encodeURIComponent(TOKEN),{cache:'no-store'});let d=await r.json();if(!d.ok)return;let x=d.summary;financeBox.innerHTML='Доступно к выплате: <b>'+x.available+' ₽</b><br>На проверке 48 часов: '+(x.pending||0)+' ₽ · Текущий баланс: '+(x.current_balance||0)+' ₽<br>Заработано: '+x.earned+' ₽ · Комиссия: '+x.commission+' ₽ · Выплачено: '+x.paid+' ₽<br><span class="small">Выплаты формируются по вторникам и пятницам после проверки.</span>';}
 async function requestPayout(){let r=await fetch('api/request_payout.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,amount:+payoutAmount.value,details:payoutDetails.value})});let d=await r.json();alert(d.ok?'Заявка '+d.payout_id+' создана':(d.error||'Ошибка'));if(d.ok){payoutAmount.value='';payoutDetails.value='';loadFinance()}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;load();loadFinance();if(online){if(watch!==null)navigator.geolocation.clearWatch(watch);watch=null;lastSent=0;start(true)}});
+window.addEventListener('pageshow',()=>{load();if(online&&watch===null)start(true)});
 load();loadFinance();if(OWN_FLEET){if(typeof ymaps!=='undefined')ymaps.ready(()=>{loadTeamMap();loadPartnerOrders()});else{loadTeamMap();loadPartnerOrders()}setInterval(loadTeamMap,15000);setInterval(loadPartnerOrders,10000)}setInterval(load,7000);setInterval(loadFinance,15000);
 </script>
 <script>
@@ -121,6 +131,7 @@ load();loadFinance();if(OWN_FLEET){if(typeof ymaps!=='undefined')ymaps.ready(()=
         credentials:'same-origin'
       });
       const d=await r.json();
+      if(d.recovered&&d.token)sessionStorage.setItem('av_tab_session',d.token);
       if(d.expired){
         sessionStorage.removeItem('av_tab_session');
         if(hasPortalHint) location.replace('/login.php');
