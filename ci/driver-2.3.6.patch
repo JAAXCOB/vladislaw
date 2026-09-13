@@ -1,17 +1,17 @@
---- a/AVRescueAndroid/app/build.gradle
-+++ b/AVRescueAndroid/app/build.gradle
+--- a/AVRescueAndroid/app/build.gradle	2026-09-12 13:33:06.000000000 +0100
++++ b/AVRescueAndroid/app/build.gradle	2026-09-13 13:40:45.618416859 +0100
 @@ -6,7 +6,7 @@
          applicationId 'ru.avrescue.app'
          minSdk 26
          targetSdk 36
 -        versionCode 34
 -        versionName '2.3.5'
-+        versionCode 35
-+        versionName '2.3.6'
++        versionCode 36
++        versionName '2.3.7'
      }
  }
---- a/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java
-+++ b/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java
+--- a/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java	2026-09-12 13:33:06.000000000 +0100
++++ b/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java	2026-09-13 10:52:13.700429015 +0100
 @@ -1,5 +1,5 @@
  package ru.avrescue.app;
 -import android.app.*;import android.os.*;import android.content.*;import android.content.pm.PackageManager;import android.graphics.Color;import android.location.*;import android.net.Uri;import android.view.*;import android.widget.*;import org.json.*;import java.time.*;
@@ -52,8 +52,8 @@
   void startDriverService(){Intent service=new Intent(this,DriverLocationService.class).setAction(DriverLocationService.ACTION_START);if(Build.VERSION.SDK_INT>=26)startForegroundService(service);else startService(service);}
   void stopDriverService(){stopService(new Intent(this,DriverLocationService.class));}
   void stopOfferAlert(){Intent service=new Intent(this,DriverLocationService.class).setAction(DriverLocationService.ACTION_STOP_ALERT);if(Build.VERSION.SDK_INT>=26)startForegroundService(service);else startService(service);}
---- a/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DriverLocationService.java
-+++ b/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DriverLocationService.java
+--- a/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DriverLocationService.java	2026-09-12 13:33:05.000000000 +0100
++++ b/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DriverLocationService.java	2026-09-13 10:52:14.352428138 +0100
 @@ -28,7 +28,7 @@
  
   private void createChannels(){NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);if(Build.VERSION.SDK_INT>=26){NotificationChannel tracking=new NotificationChannel(CHANNEL_TRACKING,"Работа на линии",NotificationManager.IMPORTANCE_LOW);tracking.setSound(null,null);nm.createNotificationChannel(tracking);NotificationChannel orders=new NotificationChannel(CHANNEL_ORDERS,"Новые заказы",NotificationManager.IMPORTANCE_HIGH);orders.enableVibration(true);nm.createNotificationChannel(orders);}}
@@ -74,3 +74,54 @@
   private void showOffer(JSONObject order){stopAlert();try{Uri sound=RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);if(sound==null)sound=RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);ringtone=RingtoneManager.getRingtone(this,sound);if(Build.VERSION.SDK_INT>=28)ringtone.setLooping(true);ringtone.play();}catch(Exception ignored){}Intent open=new Intent(this,DashboardActivity.class).putExtra("open_line",true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);PendingIntent pi=PendingIntent.getActivity(this,order.optString("id").hashCode(),open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL_ORDERS):new Notification.Builder(this);b.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("Новый заказ AV Rescue").setContentText(order.optString("service")+" · "+order.optString("address")).setAutoCancel(true).setContentIntent(pi).setPriority(Notification.PRIORITY_MAX);((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(order.optString("id").hashCode(),b.build());}
   private void showPartnerOffer(JSONObject order){String id=order.optString("id","");if(id.isEmpty())return;getSharedPreferences("avr",MODE_PRIVATE).edit().putBoolean("partner_notified_"+id,true).apply();Intent open=new Intent(this,DashboardActivity.class).putExtra("open_line",true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);PendingIntent pi=PendingIntent.getActivity(this,("partner-"+id).hashCode(),open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);String route=order.optString("pickup_address","Координаты на карте");Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL_ORDERS):new Notification.Builder(this);b.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("Новая заявка партнёра").setContentText(order.optString("service","Эвакуация")+" · "+route).setStyle(new Notification.BigTextStyle().bigText("Точка А: "+route+"\nОткройте заявку, чтобы увидеть точку Б и детали.")).setAutoCancel(true).setContentIntent(pi).setPriority(Notification.PRIORITY_HIGH);((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(("partner-"+id).hashCode(),b.build());}
   private void stopAlert(){try{if(ringtone!=null&&ringtone.isPlaying())ringtone.stop();}catch(Exception ignored){}ringtone=null;if(!alertedOfferId.isEmpty())try{((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).cancel(alertedOfferId.hashCode());}catch(Exception ignored){}}
+--- a/AVRescueAndroid/app/src/main/java/ru/avrescue/app/LoginActivity.java	2026-09-11 14:10:44.000000000 +0100
++++ b/AVRescueAndroid/app/src/main/java/ru/avrescue/app/LoginActivity.java	2026-09-12 20:40:50.707333028 +0100
+@@ -1,14 +1,14 @@
+ package ru.avrescue.app;
+-import android.app.*;import android.os.*;import android.content.*;import android.text.InputType;import android.widget.*;import org.json.JSONObject;
++import android.app.*;import android.os.*;import android.content.*;import android.net.Uri;import android.text.InputType;import android.widget.*;import org.json.JSONObject;
+ public class LoginActivity extends Activity {
+  EditText login,pass;TextView status;
+  public void onCreate(Bundle b){super.onCreate(b);migrateFromUnifiedApp();ApiClient.load(this);if(ApiClient.hasToken()){open();return;}
+   LinearLayout page=Ui.column(this);page.addView(Ui.brand(this));
+   LinearLayout card=Ui.card(this);card.addView(Ui.text(this,"AV Rescue Driver",24,true));
+   login=Ui.input(this,"Логин или email");pass=Ui.input(this,"Пароль");pass.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+-  Button go=Ui.button(this,"Войти");status=Ui.muted(this,"",14);card.addView(login);card.addView(pass);card.addView(go);
++  Button go=Ui.button(this,"Войти");Button forgot=Ui.darkButton(this,"Забыли пароль?");status=Ui.muted(this,"",14);card.addView(login);card.addView(pass);card.addView(go);card.addView(forgot);
+   Button exec=Ui.darkButton(this,"Стать исполнителем");card.addView(exec);card.addView(status);page.addView(card);
+-  exec.setOnClickListener(v->openRegister("executor"));setContentView(page);go.setOnClickListener(v->doLogin());
++  forgot.setOnClickListener(v->startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://av-rescue.ru/forgot-password.php"))));exec.setOnClickListener(v->openRegister("executor"));setContentView(page);go.setOnClickListener(v->doLogin());
+  }
+  void openRegister(String type){Intent i=new Intent(this,RegisterActivity.class);i.putExtra("type",type);startActivity(i);}
+  void migrateFromUnifiedApp(){android.content.SharedPreferences p=getSharedPreferences("avr",MODE_PRIVATE);if(!p.getBoolean("driver_split_migrated",false)){p.edit().remove("token").putBoolean("driver_split_migrated",true).commit();}}
+--- a/AVRescueAndroid/app/src/main/java/ru/avrescue/app/OrderDetailActivity.java	2026-09-05 15:48:51.000000000 +0100
++++ b/AVRescueAndroid/app/src/main/java/ru/avrescue/app/OrderDetailActivity.java	2026-09-13 13:40:45.046418270 +0100
+@@ -72,6 +72,7 @@
+   if(!vehicle.isEmpty()||!car.isEmpty())summary.addView(Ui.muted(this,(vehicle+" "+car).trim(),14));
+   double price=order.optDouble("final_price",order.optDouble("estimated_price",0));
+   if(price>0)summary.addView(Ui.text(this,Math.round(price)+" ₽",22,true));
++  if(order.optBoolean("loading_complexity",false))summary.addView(Ui.chip(this,"Сложная погрузка учтена",true));
+   String currentStatus=order.optString("status","");int eta=order.optInt("estimated_arrival_min",0);
+   if(eta>0&&!"done".equals(currentStatus)&&!"completed".equals(currentStatus)&&!"cancelled".equals(currentStatus)){String etaTitle="in_transit".equals(currentStatus)?"До адреса назначения ≈ ":"До адреса подачи ≈ ";summary.addView(Ui.chip(this,etaTitle+eta+" мин",true));}
+   box.addView(summary);
+@@ -105,6 +106,8 @@
+     } else if(st.equals("enroute")){
+       Button arrived=Ui.button(this,"Прибыл");arrived.setOnClickListener(v->action("arrived"));actions.addView(arrived);
+     } else if(st.equals("arrived")){
++      boolean complex=order.optBoolean("loading_complexity",false);
++      Button complexity=Ui.darkButton(this,complex?"Убрать сложную погрузку":"Добавить сложную погрузку");complexity.setOnClickListener(v->confirmLoadingComplexity(!complex));actions.addView(complexity);
+       Button loading=Ui.button(this,"Сфотографировать авто и начать погрузку");loading.setOnClickListener(v->takeLoadingPhoto());actions.addView(loading);
+     } else if(st.equals("loading")){
+       Button transit=Ui.button(this,"Погрузка завершена — в путь");transit.setOnClickListener(v->action("in_transit"));actions.addView(transit);
+@@ -137,6 +140,11 @@
+  void autoDispatch(){new Thread(()->{try{JSONObject r=ApiClient.post("/api/mobile_auto_dispatch.php",new JSONObject().put("order_id",orderId));runOnUiThread(()->{Toast.makeText(this,r.optBoolean("assigned")?"Ближайший водитель назначен":"Свободных водителей пока нет",Toast.LENGTH_LONG).show();load();});}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Нет связи",Toast.LENGTH_SHORT).show());}}).start();}
+  void tracking(){new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_tracking.php?order_id="+orderId);runOnUiThread(()->{if(r.optBoolean("ok")){JSONObject w=r.optJSONObject("worker");String msg="Статус: "+statusRu(r.optString("status"));if(w!=null)msg+="\nВодитель: "+w.optString("name")+" • рейтинг "+w.optDouble("rating",5);if(r.optInt("eta_min",0)>0)msg+="\nETA: ≈ "+r.optInt("eta_min")+" мин";new AlertDialog.Builder(this).setTitle("Отслеживание").setMessage(msg).setPositiveButton("OK",null).show();}});}catch(Exception e){}}).start();}
+  void rate(int score){new Thread(()->{try{JSONObject r=ApiClient.post("/api/mobile_rate.php",new JSONObject().put("order_id",orderId).put("score",score));runOnUiThread(()->Toast.makeText(this,r.optBoolean("ok")?"Спасибо за оценку":"Оценка не сохранена",Toast.LENGTH_SHORT).show());}catch(Exception e){}}).start();}
++ void confirmLoadingComplexity(boolean enabled){
++  String message=enabled?"Добавляйте доплату только после осмотра автомобиля и согласования новой стоимости с клиентом.":"Убрать ранее добавленную сложность погрузки из расчёта?";
++  new AlertDialog.Builder(this).setTitle(enabled?"Сложная погрузка":"Исправить расчёт").setMessage(message).setNegativeButton("Отмена",null).setPositiveButton(enabled?"Клиент согласен — добавить":"Убрать",(d,w)->setLoadingComplexity(enabled)).show();
++ }
++ void setLoadingComplexity(boolean enabled){new Thread(()->{try{JSONObject payload=new JSONObject().put("order_id",orderId).put("field","loading_complexity").put("enabled",enabled).put("client_consent",enabled);JSONObject r=ApiClient.post("/api/mobile_order_adjustment.php",payload);runOnUiThread(()->{if(r.optBoolean("ok")){Toast.makeText(this,"Стоимость заказа обновлена",Toast.LENGTH_LONG).show();load();}else Toast.makeText(this,r.optString("error","Не удалось изменить стоимость"),Toast.LENGTH_LONG).show();});}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Нет связи с AV Rescue",Toast.LENGTH_LONG).show());}}).start();}
+  void takeLoadingPhoto(){if(photoStep>=4)return;new AlertDialog.Builder(this).setTitle("Фото "+(photoStep+1)+" из 4").setMessage("Сфотографируйте автомобиль "+photoLabels[photoStep]).setNegativeButton("Отмена",null).setPositiveButton("Открыть камеру",(d,w)->{Intent camera=new Intent(MediaStore.ACTION_IMAGE_CAPTURE);try{startActivityForResult(camera,PHOTO_BEFORE_LOADING);}catch(Exception e){Toast.makeText(this,"Камера недоступна",Toast.LENGTH_LONG).show();}}).show();}
+  protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);if(requestCode!=PHOTO_BEFORE_LOADING||resultCode!=RESULT_OK||data==null)return;Object raw=data.getExtras()==null?null:data.getExtras().get("data");if(!(raw instanceof Bitmap)){Toast.makeText(this,"Фото не получено",Toast.LENGTH_LONG).show();return;}Bitmap photo=(Bitmap)raw;ByteArrayOutputStream out=new ByteArrayOutputStream();photo.compress(Bitmap.CompressFormat.JPEG,90,out);String encoded=Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);int step=photoStep;Toast.makeText(this,"Сохраняем фото "+(step+1)+" из 4…",Toast.LENGTH_SHORT).show();new Thread(()->{try{JSONObject upload=ApiClient.post("/api/mobile_upload.php",new JSONObject().put("kind",photoKinds[step]).put("order_id",orderId).put("data",encoded));if(!upload.optBoolean("ok")){runOnUiThread(()->Toast.makeText(this,upload.optString("error","Фото не сохранено"),Toast.LENGTH_LONG).show());return;}photoPaths[step]=upload.optString("path");photoStep=step+1;runOnUiThread(()->{if(photoStep<4){Toast.makeText(this,"Фото "+photoStep+" из 4 сохранено",Toast.LENGTH_SHORT).show();takeLoadingPhoto();}else startLoadingWithPhotos();});}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Нет связи с AV Rescue",Toast.LENGTH_LONG).show());}}).start();}
+  void startLoadingWithPhotos(){new Thread(()->{try{JSONArray photos=new JSONArray();for(int i=0;i<4;i++)photos.put(new JSONObject().put("side",photoKinds[i]).put("path",photoPaths[i]));JSONObject result=ApiClient.post("/api/mobile_order_action.php",new JSONObject().put("order_id",orderId).put("action","loading").put("photos",photos));runOnUiThread(()->{if(result.optBoolean("ok")){Toast.makeText(this,"4 фото сохранены. Погрузка начата",Toast.LENGTH_LONG).show();load();}else Toast.makeText(this,result.optString("error","Погрузка не начата"),Toast.LENGTH_LONG).show();});}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Нет связи с AV Rescue",Toast.LENGTH_LONG).show());}}).start();}
