@@ -14,7 +14,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - name: Restore source
         run: |
           base64 -d ci/avr-android-source.tgz.b64 > /tmp/avr-android.tgz
