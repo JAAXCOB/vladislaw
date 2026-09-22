@@ -52,6 +52,22 @@ def test_full_name_separates_employees_with_same_first_name():
     assert _match_employee_column(sheet, "Николай") is None
 
 
+def test_two_maxims_are_never_mixed_in_payroll():
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append([
+        "Дата",
+        "VIN/Гос.номер ТС",
+        "Услуга",
+        "Максим Шмэкс",
+        "Бодров Максим",
+    ])
+
+    assert _match_employee_column(sheet, employee_header("Максим Шмэкс")) == 4
+    assert _match_employee_column(sheet, employee_header("Бодров Максим")) == 5
+    assert _match_employee_column(sheet, employee_header("Максим")) is None
+
+
 def test_max_sender_keeps_last_name_and_uses_specific_alias():
     message = Message(
         sender=User(user_id=1, first_name="Николай", last_name="Большаков")
