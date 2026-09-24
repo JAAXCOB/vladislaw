@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#050607">
+<link rel="manifest" href="/manifest.webmanifest?v=221">
+<link rel="apple-touch-icon" href="/assets/pwa-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="AV Rescue">
+<script src="/pwa.js?v=339" defer></script>
+<title>Эвакуатор и помощь на дороге 24/7 в Москве и МО — AV Rescue</title><link rel="canonical" href="https://av-rescue.ru/">
+<meta name="description" content="AV Rescue — эвакуатор и техпомощь на дороге круглосуточно в Москве, Московской области и по межгороду. Рассчитайте стоимость и вызовите ближайшего исполнителя онлайн.">
+<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
+<meta property="og:locale" content="ru_RU"><meta property="og:type" content="website"><meta property="og:site_name" content="AV Rescue">
+<meta property="og:title" content="Эвакуатор и помощь на дороге 24/7 — AV Rescue"><meta property="og:description" content="Эвакуация и техпомощь в Москве, Московской области и по межгороду. Расчёт стоимости и вызов онлайн.">
+<meta property="og:url" content="https://av-rescue.ru/"><meta property="og:image" content="https://av-rescue.ru/assets/av-rescue-cover-2026.jpg?v=313"><meta property="og:image:alt" content="AV Rescue — эвакуатор и помощь на дороге">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="AV Rescue — помощь на дороге 24/7"><meta name="twitter:description" content="Эвакуатор и техпомощь в Москве, Московской области и по межгороду."><meta name="twitter:image" content="https://av-rescue.ru/assets/av-rescue-cover-2026.jpg?v=313">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[{"@type":"AutomotiveBusiness","@id":"https://av-rescue.ru/#business","name":"AV Rescue","url":"https://av-rescue.ru/","image":"https://av-rescue.ru/assets/av-rescue-cover-2026.jpg?v=313","telephone":"+7-925-584-58-58","email":"info@av-rescue.ru","slogan":"Найдём помощь рядом","address":{"@type":"PostalAddress","streetAddress":"Дмитровское шоссе, 163 стр. 3","addressLocality":"Москва","postalCode":"127495","addressCountry":"RU"},"areaServed":["Москва","Московская область","Межгород из Москвы и Московской области"],"openingHours":"Mo-Su 00:00-23:59","sameAs":["https://yandex.ru/maps/org/av_rescue/105797695171/","https://2gis.ru/moscow/firm/70000001117746954","https://max.ru/channel_avrescue"]},{"@type":"WebSite","@id":"https://av-rescue.ru/#website","name":"AV Rescue","url":"https://av-rescue.ru/","inLanguage":"ru-RU","publisher":{"@id":"https://av-rescue.ru/#business"}},{"@type":"MobileApplication","name":"AVR Driver","operatingSystem":"Android","applicationCategory":"BusinessApplication","description":"Рабочее приложение для водителей и исполнителей сервиса AV Rescue.","installUrl":"https://www.rustore.ru/catalog/app/ru.avrescue.app","publisher":{"@id":"https://av-rescue.ru/#business"}}]}
+</script>
+<style>
+:root{--red:#ed111c;--bg:#050607;--panel:#0d0f11;--line:#30343a;--muted:#adb0b5}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:#fff;font-family:Arial,Helvetica,sans-serif}
+a{text-decoration:none;color:inherit}button,input,select,textarea{font:inherit}
+.wrap{width:min(1280px,calc(100% - 42px));margin:auto}
+
+header{height:82px;position:sticky;top:0;z-index:1000;background:#050607f4;border-bottom:1px solid #22252a;backdrop-filter:blur(10px)}
+.nav{height:100%;display:flex;align-items:center;justify-content:space-between;gap:22px}
+.brand{display:flex;align-items:center;gap:12px}.avr{font-size:43px;font-weight:900;letter-spacing:-5px}.avr .r{color:var(--red)}
+.brandText{font-size:14px;font-weight:900}.brandText small{display:block;font-size:10px;font-weight:400;color:#aaa;margin-top:3px}
+.menu{display:flex;gap:25px;font-size:14px}.menu a:hover{color:var(--red)}
+.phone,.btn{display:inline-flex;align-items:center;justify-content:center;padding:14px 20px;border-radius:7px;background:var(--red);border:1px solid var(--red);color:#fff;font-weight:800;cursor:pointer}
+.btn.secondary{background:#0a0c0e;border-color:#62666c}
+
+.hero{position:relative;min-height:610px;overflow:hidden}
+.heroMedia{position:absolute;right:0;top:0;width:60%;height:100%;background:url("assets/hero-clean-v30.jpg?v=30") center/cover no-repeat}
+.heroMedia:before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#050607 0,#05060798 24%,transparent 58%),linear-gradient(0deg,#050607 0,transparent 25%)}
+.hero .wrap{position:relative;z-index:2;min-height:610px;display:flex;align-items:center}
+.heroCopy{width:49%}.eyebrow{font-size:13px;font-weight:900;color:var(--red);letter-spacing:1.5px}
+h1{font-size:clamp(62px,7vw,94px);line-height:.93;letter-spacing:-6px;margin:18px 0 13px}.red{color:var(--red)}
+.hero h2{font-size:34px;margin:0 0 15px}.lead{font-size:18px;line-height:1.55;color:#ddd}
+.heroActions{display:flex;gap:12px;margin-top:27px}
+.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:43px}
+.fact b{font-size:15px;line-height:1.2;display:block}.fact small{font-size:12.5px;line-height:1.35;color:#b8bbc0;display:block;margin-top:6px}
+
+section{padding:66px 0}.sectionTitle{display:flex;align-items:center;justify-content:center;gap:23px;font-size:31px;margin:0 0 31px}
+.sectionTitle:before,.sectionTitle:after{content:"";height:1px;background:#45484d;flex:1}
+
+/* SERVICES: selectable matrix on desktop, swipe carousel on mobile */
+.services{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.service{display:grid;grid-template-columns:150px minmax(0,1fr);min-height:150px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:linear-gradient(145deg,#101214,#08090a);cursor:pointer;transition:border-color .18s,box-shadow .18s,transform .18s}
+.service:hover{transform:translateY(-2px);border-color:#666b72}.service.selected{border-color:var(--red);box-shadow:inset 0 0 0 1px var(--red),0 10px 26px #0005}.service:focus-visible{outline:3px solid #ed111c55;outline-offset:3px}
+.servicePhoto{width:100%;aspect-ratio:16/10;background-size:cover;background-position:center}
+.service .servicePhoto{height:100%;aspect-ratio:auto}.serviceBody{display:flex;flex-direction:column;justify-content:center;padding:18px;min-height:148px}.service h3{font-size:18px;margin:0 0 9px}.service p{font-size:13px;line-height:1.5;color:#c2c3c6;margin:0}
+.servicePickerAction{display:flex;align-items:center;justify-content:center;gap:18px;margin-top:20px}.servicePickerAction span{color:#b8bbc0;font-size:13px}.servicePickerAction b{color:#fff}.serviceCalculate{min-width:220px}
+
+/* BENEFITS: compact + image thumbnail, no emoji */
+#why{padding-top:18px}.advantages{display:grid;grid-template-columns:repeat(5,1fr);gap:11px}
+.adv{border:1px solid var(--line);border-radius:8px;padding:12px;min-height:112px;display:grid;grid-template-columns:68px 1fr;gap:12px;align-items:center;background:#0a0c0e}
+.advImg{width:68px;height:68px;border-radius:7px;object-fit:cover;border:1px solid #25282d}
+.adv b{font-size:13px}.adv p{font-size:10.5px;line-height:1.45;color:#bbb;margin:7px 0 0}
+
+/* ORDER */
+.order{border:1px solid var(--line);border-radius:10px;background:linear-gradient(145deg,#0e1012,#08090a);padding:28px}
+.order h2{font-size:29px;margin:0 0 7px}.order>p{color:#bbb;margin:0 0 22px}
+.steps{display:grid;grid-template-columns:1fr 1fr;gap:27px}.label{display:block;font-size:12px;font-weight:800;margin:12px 0 7px}
+input,select,textarea{width:100%;background:#151719;border:1px solid #34373b;border-radius:6px;color:#fff;padding:13px;font-size:13px}
+textarea{min-height:82px;resize:vertical}
+.vehicleTypes{display:grid;grid-template-columns:repeat(6,1fr);gap:7px}
+.vehicleBtn{background:#0b0d0f;border:1px solid #34373b;color:#ddd;border-radius:7px;padding:0;overflow:hidden;cursor:pointer;font-size:10px;min-width:0}
+.vehicleBtn img{width:100%;height:68px;display:block;object-fit:cover;background:#090a0b}
+.vehicleBtn span{display:block;padding:8px 3px}.vehicleBtn.active{border-color:var(--red);box-shadow:inset 0 0 0 1px var(--red)}
+.mapWrap{position:relative;border:1px solid #34373b;border-radius:7px;overflow:hidden;margin-top:9px}
+#map{height:265px;background:#151719}.locate{position:absolute;left:10px;bottom:10px;z-index:500;background:#fff;color:#111;border:0;border-radius:6px;padding:8px 10px;font-size:12px;cursor:pointer}
+.mapCountry{position:absolute;right:10px;bottom:8px;z-index:500;background:#fff;color:#222;border-radius:4px;padding:4px 7px;font-size:10px}
+.inline2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.submit{width:100%;margin-top:12px;border:0}.privacy{font-size:10px;color:#aaa}
+.paymentChoices{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.paymentChoice{position:relative}.paymentChoice input{position:absolute;opacity:0;pointer-events:none}.paymentChoice span{display:block;padding:12px 8px;border:1px solid #34373b;border-radius:7px;background:#111315;text-align:center;font-size:12px;font-weight:800;cursor:pointer}.paymentChoice input:checked+span{border-color:var(--red);box-shadow:inset 0 0 0 1px var(--red)}.paymentChoice input:disabled+span{opacity:.45;cursor:not-allowed}.paymentHint{font-size:11px;color:#aaa;line-height:1.45;margin:8px 0 0}
+.partner{margin-top:17px;border:1px solid var(--line);border-radius:9px;padding:25px;display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center}
+.partner h2{margin:0 0 7px}.partner p{margin:0;color:#aaa}
+.authNotice{display:none;margin:0 0 20px;padding:14px 16px;border:1px solid #4d3033;border-radius:8px;background:#210b0d;color:#f4d9db;font-size:13px;line-height:1.45}.authNotice strong{color:#fff}.quoteBox{margin-top:11px;padding:13px 14px;border:1px solid #34373b;border-radius:7px;background:#090b0d;color:#ddd;font-size:12px;line-height:1.55}.quoteBox b{color:#fff;font-size:15px}.quoteBox span{color:#aeb2b8}
+.iosApp{display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center;border:1px solid #34383e;border-radius:18px;padding:24px;background:radial-gradient(circle at 12% 10%,#2a090d 0,transparent 34%),linear-gradient(145deg,#14171a,#090a0c);box-shadow:0 18px 55px #0006}
+.iosIcon{width:88px;height:88px;border-radius:22px;box-shadow:0 12px 30px #0008}.iosApp h2{font-size:27px;margin:0 0 7px}.iosApp p{color:#b9bcc1;line-height:1.5;margin:0}.iosLabel{display:inline-block;margin-bottom:8px;color:#ff5d65;font-size:11px;font-weight:900;letter-spacing:1.2px}.iosHint{display:block;margin-top:8px;color:#85898f;font-size:11px}
+.driverApp{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:24px;align-items:center;border:1px solid #3b3f45;border-radius:18px;padding:25px;background:radial-gradient(circle at 8% 18%,#3a090e 0,transparent 34%),linear-gradient(145deg,#16191d,#090a0c);box-shadow:0 18px 55px #0006}.driverAppLogo{width:92px;height:92px;border-radius:23px;background:#050607;border:1px solid #4a4f56;display:grid;place-items:center;box-shadow:0 12px 30px #0008;text-align:center;font-weight:950;font-size:25px;line-height:.82;letter-spacing:-1.5px}.driverAppLogo b{color:var(--red)}.driverAppLogo small{display:block;margin-top:8px;color:#fff;font-size:10px;letter-spacing:1.2px}.driverApp h2{font-size:29px;margin:0 0 8px}.driverApp p{color:#b9bcc1;line-height:1.55;margin:0;max-width:700px}.driverAppActions{display:grid;gap:10px;min-width:235px}.driverAppActions .btn{width:100%}.storeNote{display:block;margin-top:8px;color:#85898f;font-size:11px}
+.ratings{padding:24px 0 74px}.ratingShowcase{position:relative;overflow:hidden;border:1px solid #34383e;border-radius:22px;background:#090b0d;box-shadow:0 24px 70px #0008}.ratingCover{min-height:280px;background:linear-gradient(90deg,#08090beF 0%,#08090bc9 45%,#08090b40 74%),url("assets/av-rescue-cover-2026.jpg?v=313") center/cover no-repeat;display:flex;align-items:center;padding:38px}.ratingIntro{width:min(540px,100%)}.ratingIntro .eyebrow{display:block;margin-bottom:11px}.ratingIntro h2{font-size:clamp(30px,4vw,48px);line-height:1.04;margin:0 0 14px}.ratingIntro p{color:#c1c5ca;line-height:1.55;margin:0}.ratingGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px}.ratingCard{position:relative;border:1px solid #34383e;border-radius:15px;padding:21px;background:linear-gradient(145deg,#15181c,#0b0d0f);display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:16px;transition:.2s}.ratingCard:hover{transform:translateY(-2px);border-color:#ed111c}.ratingLogo{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font-weight:950;font-size:18px;background:#fff;color:#111}.ratingLogo.yandex{color:#fc3f1d}.ratingLogo.gis{background:#21a038;color:#fff}.ratingBrand{font-size:18px;font-weight:900}.ratingBrand small{display:block;margin-top:6px;color:#969ba2;font-size:11px;font-weight:400;line-height:1.4}.ratingMeta{text-align:right}.ratingMeta strong{display:block;color:#fff;font-size:13px}.ratingMeta span{display:block;color:#55d985;font-size:11px;font-weight:800;margin-top:5px}.ratingNote{padding:0 20px 20px;color:#858b92;font-size:11px;line-height:1.45}.ratingNote strong{color:#bfc3c8}
+footer{margin-top:34px;border-top:1px solid #292d32;background:radial-gradient(circle at 8% 0,#260a0d 0,transparent 28%),#080a0c;padding:46px 0 22px}.footer{display:grid;grid-template-columns:1.2fr 1fr 1fr 1.35fr;gap:34px;color:#aeb2b8;font-size:12px}.footerBrand .avr{display:inline-block;margin-bottom:13px}.footerBrand p{max-width:260px;margin:0;line-height:1.55}.footerTitle{display:block;margin-bottom:13px;color:#fff;font-size:13px;font-weight:900}.footerLinks{display:grid;gap:9px}.footerLinks a{width:max-content;max-width:100%;transition:.2s}.footerLinks a:hover{color:#ff555d}.footerContact{display:grid;gap:10px}.footerContact a{color:#fff}.footerContact small{display:block;margin-top:3px;color:#7f858c}.footerBottom{grid-column:1/-1;display:flex;justify-content:space-between;gap:20px;border-top:1px solid #292d32;margin-top:7px;padding-top:20px;color:#787e85}
+
+@media(max-width:1080px){.menu{gap:14px}.services{grid-template-columns:repeat(2,1fr)}.advantages{grid-template-columns:repeat(3,1fr)}.vehicleTypes{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:800px){.menu{display:none}.brandText{display:none}.heroMedia{width:100%;opacity:.44}.heroCopy{width:100%}.facts{grid-template-columns:1fr 1fr}.steps{grid-template-columns:1fr}.advantages{grid-template-columns:1fr 1fr}.partner{grid-template-columns:1fr}.iosApp{grid-template-columns:auto 1fr}.iosApp .btn{grid-column:1/-1;width:100%}.driverApp{grid-template-columns:auto 1fr}.driverAppActions{grid-column:1/-1;min-width:0;grid-template-columns:1fr 1fr}.ratingGrid{grid-template-columns:1fr}.ratingCover{min-height:250px;padding:28px}.footer{grid-template-columns:1fr 1fr}}
+@media(max-width:540px){.wrap{width:min(100% - 28px,1280px)}.phone{font-size:12px;padding:10px}.heroActions{display:block}.heroActions .btn{display:flex;margin:8px 0}.fact b{font-size:12px}.fact small{font-size:10px;line-height:1.3;margin-top:4px}.services{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:3px 14px 13px;margin-inline:-14px;scrollbar-width:none}.services::-webkit-scrollbar{display:none}.service{flex:0 0:min(82vw,310px);display:block;min-height:0;scroll-snap-align:center}.service .servicePhoto{height:auto;aspect-ratio:16/9}.serviceBody{min-height:132px;padding:15px}.service h3{font-size:16px}.service p{font-size:12px}.servicePickerAction{display:grid;gap:10px;text-align:center}.serviceCalculate{width:100%;min-width:0}.advantages{grid-template-columns:1fr}.vehicleTypes{grid-template-columns:repeat(2,1fr)}.inline2{grid-template-columns:1fr}.driverApp{grid-template-columns:1fr;text-align:left;padding:20px}.driverAppLogo{width:78px;height:78px;font-size:22px}.driverAppActions{grid-column:auto;grid-template-columns:1fr}.ratingCover{min-height:260px;padding:24px;background:linear-gradient(0deg,#08090bf5 0%,#08090b9e 100%),url("assets/av-rescue-cover-2026.jpg?v=313") 62% center/cover no-repeat}.ratingCard{grid-template-columns:auto 1fr}.ratingMeta{grid-column:1/-1;text-align:left;padding-left:62px}.footer{grid-template-columns:1fr;gap:26px}.footerBottom{display:grid}.footerLinks a{width:auto}}
+</style>
+<link rel="stylesheet" href="/assets/order-ui-v258.css?v=258"><link rel="stylesheet" href="/assets/home-content-v310.css?v=310"><link rel="stylesheet" href="/assets/form-alignment-v262.css?v=262"><link rel="stylesheet" href="/assets/plate-input-v320.css?v=320"><link rel="stylesheet" href="/assets/site-fixes-v319.css?v=319"><link rel="stylesheet" href="/assets/ui-hotfix-v326.css?v=326"><link rel="stylesheet" href="/assets/app-panels-v339.css?v=339"></head>
+<body>
+<header><div class="wrap nav">
+<a class="brand" href="#"><span class="avr">AV<span class="r">R</span></span><span class="brandText">AV RESCUE<small>Найдём помощь рядом</small></span></a>
+<nav class="menu"><a href="#order">Вызвать помощь</a><a href="/prices.php">Тарифы</a><a href="#b2b" class="guestOnly">Бизнесу</a><a href="#partners" class="guestOnly">Водителям</a><a href="#faq">Помощь</a><a id="portalLoginLink" href="/portal.php">Войти</a><a id="headerRegisterLink" class="guestOnly" href="/register.php">Регистрация</a></nav>
+<a class="phone" href="tel:+79255845858">8 925 584-58-58</a>
+</div></header>
+
+<main>
+<div class="hero"><div class="heroMedia"></div><div class="wrap"><div class="heroCopy">
+<div class="eyebrow">ПОМОЩЬ НА ДОРОГЕ • 24/7</div><h1>AV <span class="red">Rescue</span></h1><h2>Найдём помощь рядом</h2>
+<p class="lead">Помогаем автомобилистам в Москве, Московской области и на междугородних маршрутах — от запуска двигателя до эвакуации.</p>
+<div class="heroActions"><a class="btn" href="#order">Вызвать помощь</a></div>
+<div class="facts"><div class="fact"><b>24/7</b><small>Принимаем заявки круглосуточно</small></div><div class="fact"><b>Москва и МО</b><small>Междугородние перевозки</small></div><div class="fact"><b>Проверенные исполнители</b><small>Собственный парк и партнёры</small></div><div class="fact"><b>Цена до заказа</b><small>Маршрут и расчёт заранее</small></div></div>
+</div></div></div>
+
+<section id="services"><div class="wrap"><h2 class="sectionTitle">Наши <span class="red">услуги</span></h2><div class="services" id="servicePicker" aria-label="Выберите услугу">
+<article class="service selected" data-service="Эвакуация" role="button" tabindex="0" aria-pressed="true"><div class="servicePhoto" role="img" aria-label="Эвакуация автомобиля" style="background-image:url('assets/service-evacuation-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Эвакуация</h3><p>Быстрая и безопасная эвакуация легковых и коммерческих автомобилей.</p></div></article>
+<article class="service" data-service="Запуск двигателя" role="button" tabindex="0" aria-pressed="false"><div class="servicePhoto" style="background-image:url('assets/service-battery-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Запуск двигателя</h3><p>Запустим двигатель при разряженном аккумуляторе.</p></div></article>
+<article class="service" data-service="Подвоз топлива" role="button" tabindex="0" aria-pressed="false"><div class="servicePhoto" style="background-image:url('assets/service-fuel-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Подвоз топлива</h3><p>Привезём топливо, если оно закончилось в дороге.</p></div></article>
+<article class="service" data-service="Замена колеса" role="button" tabindex="0" aria-pressed="false"><div class="servicePhoto" style="background-image:url('assets/service-wheel-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Замена колеса</h3><p>Оперативно заменим пробитое колесо на запасное.</p></div></article>
+<article class="service" data-service="Техпомощь" role="button" tabindex="0" aria-pressed="false"><div class="servicePhoto" style="background-image:url('assets/service-repair-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Техпомощь на дороге</h3><p>Помощь при неисправности автомобиля на месте.</p></div></article>
+<article class="service" data-service="Вскрытие автомобиля" role="button" tabindex="0" aria-pressed="false"><div class="servicePhoto" style="background-image:url('assets/service-unlock-v30.jpg?v=30')"></div><div class="serviceBody"><h3>Вскрытие автомобиля</h3><p>Аккуратная помощь без повреждения автомобиля.</p></div></article>
+</div><div class="servicePickerAction"><span>Выбрано: <b id="selectedServiceLabel">Эвакуация</b></span><a class="btn serviceCalculate" id="serviceCalculate" href="#order">Рассчитать стоимость</a></div></div></section>
+
+<section id="why"><div class="wrap"><h2 class="sectionTitle">Почему выбирают <span class="red">AV Rescue</span></h2><div class="advantages">
+<div class="adv"><img class="advImg" src="assets/benefit-247-v30.jpg?v=30" alt="Круглосуточная помощь AV Rescue" loading="lazy"><div><b>Работаем 24/7</b><p>На связи круглосуточно, без выходных.</p></div></div>
+<div class="adv"><img class="advImg" src="assets/benefit-moscow-v30.jpg?v=30" alt="Эвакуатор AV Rescue в Москве" loading="lazy"><div><b>География работы</b><p>Москва, Московская область и междугородние маршруты.</p></div></div>
+<div class="adv"><img class="advImg" src="assets/benefit-fast-v30.jpg?v=30" alt="Быстрый подбор ближайшего водителя" loading="lazy"><div><b>Быстрый поиск</b><p>Подбираем ближайшего свободного специалиста.</p></div></div>
+<div class="adv"><img class="advImg" src="assets/benefit-partners-v30.jpg?v=30" alt="Проверенные исполнители AV Rescue" loading="lazy"><div><b>Проверенные исполнители</b><p>Водители проходят проверку перед получением заказов.</p></div></div>
+<div class="adv"><img class="advImg" src="assets/benefit-terms-v30.jpg?v=30" alt="Прозрачный расчёт стоимости" loading="lazy"><div><b>Прозрачные условия</b><p>Маршрут и расчёт показываются до подтверждения заказа.</p></div></div>
+</div></div></section>
+
+<section id="order"><div class="wrap"><div class="order">
+<h2>Вызвать помощь</h2><p>Заполните данные автомобиля и укажите точку на карте.</p>
+<div class="authNotice" id="authOrderNotice"></div><div class="authNotice" id="authRestrictedNotice"><strong>Вы уже вошли в систему.</strong><br>Для работы в своей роли откройте личный кабинет.<br><a class="btn" style="margin-top:12px" href="/portal.php">Перейти в кабинет</a></div>
+<form id="orderForm"><div class="steps">
+<div>
+<label class="label">1. Что случилось?</label><select id="service" required><option value="">Выберите тип услуги</option><option>Эвакуация</option><option>Запуск двигателя</option><option>Подвоз топлива</option><option>Замена колеса</option><option>Техпомощь</option><option>Вскрытие автомобиля</option></select>
+<label class="label">2. Тип транспорта</label>
+<div class="vehicleTypes">
+<button type="button" class="vehicleBtn active" data-value="Легковой"><img src="assets/vehicle-car-v30.jpg?v=30" alt="Легковой автомобиль"><span>Легковой</span></button>
+<button type="button" class="vehicleBtn" data-value="Внедорожник"><img src="assets/vehicle-suv-v30.jpg?v=30" alt="Внедорожник"><span>Внедорожник</span></button>
+<button type="button" class="vehicleBtn" data-value="Мотоцикл"><img src="assets/vehicle-moto-v30.jpg?v=30" alt="Мотоцикл"><span>Мотоцикл</span></button>
+<button type="button" class="vehicleBtn" data-value="Коммерческий"><img src="assets/vehicle-commercial-v30.jpg?v=30" alt="Коммерческий автомобиль"><span>Коммерческий</span></button>
+<button type="button" class="vehicleBtn" data-value="Грузовой"><img src="assets/vehicle-truck-v30.jpg?v=30" alt="Грузовой автомобиль"><span>Грузовой</span></button>
+<button type="button" class="vehicleBtn" data-value="Спецтехника"><img src="assets/vehicle-special-v30.jpg?v=30" alt="Спецтехника"><span>Спецтехника</span></button>
+</div><input type="hidden" id="vehicleType" value="Легковой">
+
+<label class="label">3. Местоположение</label>
+<input id="address" aria-label="Адрес подачи" autocomplete="street-address" placeholder="Введите адрес в России или выберите точку на карте" required>
+<input id="destination" aria-label="Адрес назначения" autocomplete="street-address" placeholder="Адрес назначения">
+<div class="mapWrap"><div id="map" aria-label="Карта маршрута AV Rescue"></div><button type="button" class="locate" id="locateBtn">Моё местоположение</button><div class="mapCountry">Россия — карта и маршрут AV Rescue</div></div>
+<input type="hidden" id="lat"><input type="hidden" id="lng"><input type="hidden" id="destination_lat"><input type="hidden" id="destination_lng"><input type="hidden" id="distance_km">
+</div>
+
+<div>
+<label class="label">4. Автомобиль</label><input id="license_plate" data-av-plate aria-label="Государственный регистрационный номер" autocomplete="off" required placeholder="Государственный регистрационный номер">
+<div id="vehicleWeightWrap"><input id="vehicle_weight_kg" type="number" min="1" step="1" placeholder="Масса автомобиля, кг"></div><div id="vehicleLengthWrap" hidden><input id="vehicle_length_m" type="number" min="0.1" step="0.1" placeholder="Длина автомобиля, м"></div>
+<textarea id="comment" placeholder="Комментарий для водителя (необязательно)"></textarea>
+<div id="customerData"><label class="label">Ваши данные</label><div class="inline2"><input id="name" aria-label="Ваше имя" autocomplete="name" required placeholder="Ваше имя"><input id="phone" aria-label="Телефон" autocomplete="tel" inputmode="tel" required placeholder="Телефон"></div></div>
+<label class="label">Способ оплаты</label><div class="paymentChoices"><label class="paymentChoice"><input type="radio" name="payment_method" value="cash" checked><span>Наличные</span></label><label class="paymentChoice" hidden><input type="radio" name="payment_method" value="sbp" data-online><span>СБП</span></label><label class="paymentChoice" hidden><input type="radio" name="payment_method" value="card" data-online><span>Карта</span></label><label class="paymentChoice" id="invoicePayment" hidden><input type="radio" name="payment_method" value="invoice"><span>По счёту</span></label></div><p class="paymentHint" id="paymentHint">Онлайн-оплата появится после подключения банка.</p>
+<div id="priceResult" class="quoteBox">Введите адреса — маршрут и стоимость рассчитаются автоматически.</div>
+<button class="btn submit" type="submit">Отправить заявку</button><p class="privacy">Данные используются только для обработки заявки AV Rescue.</p>
+</div>
+</div></form></div>
+</div></section>
+
+
+
+
+
+<section class="guestOnly accountChoices" id="account"><div class="wrap"><div class="accountChoiceGrid">
+<article class="accountChoice"><div><span class="accountChoiceType">КЛИЕНТАМ</span><h2>Личный аккаунт</h2><p>Сохраняйте данные, смотрите историю и отслеживайте статусы заявок.</p></div><div class="accountChoiceActions"><a class="btn" href="/register.php?type=client">Регистрация</a><a class="btn secondary" href="/portal.php?role=client">Войти</a></div></article>
+<article class="accountChoice" id="b2b"><div><span class="accountChoiceType">БИЗНЕСУ</span><h2>Кабинет B2B</h2><p>Для автосервисов, дилеров, автопарков, страховых компаний и других партнёров.</p></div><div class="accountChoiceActions"><a class="btn" href="/b2b-register.php">Регистрация</a><a class="btn secondary" href="/portal.php?role=b2b">Войти</a></div></article>
+<article class="accountChoice" id="partners"><div><span class="accountChoiceType">ИСПОЛНИТЕЛЯМ</span><h2>Кабинет водителя</h2><p>Зарегистрируйтесь, пройдите проверку и работайте через приложение Android или веб-версию.</p></div><div class="accountChoiceActions accountChoiceActions--driver"><a class="btn" href="/executor-register.php">Регистрация</a><a class="btn secondary" href="/portal.php?role=executor">Веб-версия</a><a class="btn secondary" href="https://www.rustore.ru/catalog/app/ru.avrescue.app" target="_blank" rel="noopener">RuStore</a></div></article>
+</div></div></section>
+<section id="driver-app" class="avr-content-section appAccessSection" aria-labelledby="driver-app-title"><div class="wrap"><div class="appAccessPanel">
+<div class="appAccessIntro"><span class="avr-kicker">ВОДИТЕЛЯМ И ИСПОЛНИТЕЛЯМ</span><h2 id="driver-app-title">AVR Driver: <span class="red">два способа работы</span></h2><p>Заказы, маршрут, статусы и доход доступны как в Android-приложении, так и в веб-версии. Используйте тот вариант, который удобнее на вашем телефоне.</p></div>
+<div class="appAccessGrid">
+<article class="appAccessCard"><span class="appAccessBadge">ANDROID</span><h3>Приложение AVR Driver</h3><p>Установите официальную версию из RuStore и войдите в подтверждённый профиль.</p><a class="btn" href="https://www.rustore.ru/catalog/app/ru.avrescue.app" target="_blank" rel="noopener">Скачать в RuStore</a></article>
+<article class="appAccessCard"><span class="appAccessBadge">ВЕБ-ВЕРСИЯ</span><h3>AVR Driver без скачивания</h3><p>Работает через браузер на iPhone и Android. Ярлык можно добавить на главный экран телефона.</p><div class="appAccessActions"><button class="btn" type="button" onclick="window.AVRPWA&amp;&amp;window.AVRPWA.install('driver-app')">На главный экран</button><a class="btn secondary" href="/portal.php?role=executor">Открыть веб-версию</a></div><small class="pwaHint">iPhone: Safari → «Поделиться» → «На экран Домой». Android: меню браузера → «Установить приложение».</small></article>
+</div><div class="appAccessFooter"><span>Доступ к заказам открывается после регистрации и проверки профиля.</span><a href="/executor-register.php">Стать исполнителем →</a></div>
+</div></div></section>
+<section id="web-app" class="avr-content-section appAccessSection" aria-labelledby="web-app-title"><div class="wrap"><div class="appAccessPanel appAccessPanel--web">
+<div class="appAccessIntro"><span class="avr-kicker">ВЕБ-ВЕРСИЯ AV RESCUE</span><h2 id="web-app-title">Личный кабинет <span class="red">на главном экране</span></h2><p>Это не отдельное приложение из App Store. Кабинет открывается через сайт и устанавливается на главный экран как веб-приложение.</p></div>
+<div class="webAccessLayout"><div class="webAccessFor"><strong>Кому доступно</strong><span>Клиентам и B2B</span><span>Диспетчерам</span><span>Администраторам</span></div><div class="webAccessSteps"><strong>Как установить</strong><ol><li><b>iPhone:</b> откройте сайт в Safari, нажмите «Поделиться» и выберите «На экран Домой».</li><li><b>Android:</b> откройте меню Chrome и нажмите «Установить приложение» или «Добавить на главный экран».</li></ol></div></div>
+<div class="appAccessActions appAccessActions--main"><button class="btn" type="button" onclick="window.AVRPWA&amp;&amp;window.AVRPWA.install('web-app')">Установить на главный экран</button><a class="btn secondary" href="/portal.php">Войти в кабинет</a></div><small class="pwaHint">После установки AV Rescue откроется с главного экрана телефона без поиска сайта в браузере.</small>
+</div></div></section>
+<section class="avr-content-section"><div class="wrap"><div class="avr-content-shell avr-about"><div class="avr-about-grid"><div class="avr-about-copy"><span class="avr-kicker">О сервисе</span><h2>Помощь на дороге<br>и межгород</h2><p>AV Rescue объединяет клиентов, корпоративных партнёров, диспетчеров и проверенных исполнителей в одной системе. Адрес и маршрут формируют расчёт, а заявка передаётся ближайшим подходящим водителям.</p><p>В личном кабинете сохраняются статусы, история, документы и расчёты. Для B2B предусмотрены индивидуальные условия и закрывающие документы.</p></div><div class="avr-facts"><div class="avr-fact"><strong>24/7</strong><span>Принимаем заявки круглосуточно</span></div><div class="avr-fact"><strong>Москва и МО</strong><span>Работаем также по межгороду</span></div><div class="avr-fact"><strong>До заказа</strong><span>Показываем маршрут и расчёт</span></div><div class="avr-fact"><strong>Один кабинет</strong><span>Статусы, история и документы</span></div></div></div></div></div></section>
+<section class="avr-content-section" id="how"><div class="wrap"><div class="avr-blog-head"><div><span class="avr-kicker">Как это работает</span><h2>От заявки до завершения<br>за четыре шага</h2><p>Без обязательного звонка и регистрации до оформления.</p></div></div><div class="avr-step-grid"><div class="avr-step"><strong>1</strong><h3>Опишите ситуацию</h3><p>Выберите услугу и тип автомобиля.</p></div><div class="avr-step"><strong>2</strong><h3>Укажите маршрут</h3><p>Точки А и Б формируют километраж и расчёт.</p></div><div class="avr-step"><strong>3</strong><h3>Подтвердите заявку</h3><p>Увидите стоимость до отправки заказа.</p></div><div class="avr-step"><strong>4</strong><h3>Следите за статусом</h3><p>Исполнитель получает заказ, а история сохраняется в кабинете.</p></div></div></div></section>
+<section class="avr-content-section" id="useful"><div class="wrap"><div class="avr-blog-head"><div><span class="avr-kicker">Полезно знать</span><h2>Спокойнее, когда<br>знаешь порядок действий</h2><p>Короткие инструкции для ситуаций, которые чаще всего случаются в дороге.</p></div><a class="avr-text-link" href="/blog.php">Все материалы →</a></div><div class="avr-article-grid">
+<a class="avr-article" href="/blog.php#evacuation"><div class="avr-article-photo" style="background-image:url('/assets/service-evacuation-v30.jpg?v=30')"></div><div class="avr-article-body"><small>ЭВАКУАЦИЯ</small><h3>Как подготовить автомобиль к эвакуации</h3><p>Документы, состояние колёс и важные действия до приезда водителя.</p><span class="avr-text-link">Читать →</span></div></a>
+<a class="avr-article" href="/blog.php#battery"><div class="avr-article-photo" style="background-image:url('/assets/service-battery-v30.jpg?v=30')"></div><div class="avr-article-body"><small>ТЕХПОМОЩЬ</small><h3>Что делать при разряженном аккумуляторе</h3><p>Как не навредить автомобилю и безопасно дождаться специалиста.</p><span class="avr-text-link">Читать →</span></div></a>
+<a class="avr-article" href="/blog.php#mkad"><div class="avr-article-photo" style="background-image:url('/assets/benefit-moscow-v30.jpg?v=30')"></div><div class="avr-article-body"><small>БЕЗОПАСНОСТЬ</small><h3>Поломка на МКАД: как ждать помощь</h3><p>Где остановиться, что сообщить диспетчеру и как защитить пассажиров.</p><span class="avr-text-link">Читать →</span></div></a>
+</div></div></section>
+<section class="avr-content-section" id="faq"><div class="wrap"><div class="avr-blog-head"><div><span class="avr-kicker">Частые вопросы</span><h2>Что важно знать<br>до вызова помощи</h2></div></div><div class="avr-faq"><details><summary>Сколько стоит эвакуация?</summary><p>Стоимость зависит от подачи, километража, типа автомобиля и дополнительных работ. Предварительный расчёт показывается в форме до отправки заявки.</p></details><details><summary>Когда стоимость может измениться?</summary><p>Если на месте обнаружатся неуказанные заблокированные колёса, повреждения после ДТП, необходимость подкатов или другая сложность погрузки. Исполнитель обязан согласовать изменение до выполнения дополнительных работ.</p></details><details><summary>Какие документы выдаёт AV Rescue?</summary><p>В личном кабинете сохраняются сведения о заказе и расчёте. Для корпоративных клиентов предусмотрены закрывающие документы и индивидуальные условия.</p></details><details><summary>Где работает сервис?</summary><p>Принимаем заказы в Москве и Московской области, а также выполняем междугородние перевозки. Стоимость рассчитывается по маршруту до подтверждения заявки.</p></details></div></div></section>
+<section class="ratings" aria-label="AV Rescue на картах"><div class="wrap"><div class="ratingShowcase">
+<div class="ratingCover"><div class="ratingIntro"><span class="eyebrow">ПРОВЕРЕННЫЕ КАРТОЧКИ КОМПАНИИ</span><h2>AV Rescue в Яндекс Картах и 2ГИС</h2><p>Смотрите актуальные контакты, фотографии эвакуаторов и оставляйте отзыв после выполненного заказа.</p></div></div>
+<div class="ratingGrid">
+<a class="ratingCard ratingLink" href="https://yandex.ru/maps/org/av_rescue/105797695171/" target="_blank" rel="noopener" aria-label="Открыть карточку AV Rescue в Яндекс Картах"><span class="ratingLogo yandex">Я</span><span class="ratingBrand">Яндекс Карты<small>Карточка подтверждена владельцем, работаем 24/7</small></span><span class="ratingMeta"><strong>Отзывов пока нет</strong><span>Открыть карточку →</span></span></a>
+<a class="ratingCard ratingLink" href="https://2gis.ru/moscow/firm/70000001117746954" target="_blank" rel="noopener" aria-label="Открыть карточку AV Rescue в 2ГИС"><span class="ratingLogo gis">2Г</span><span class="ratingBrand">2ГИС<small>Дмитровское шоссе, 163 стр. 3, работаем 24/7</small></span><span class="ratingMeta"><strong>Отзывов пока нет</strong><span>Открыть карточку →</span></span></a>
+</div><div class="ratingNote"><strong>Мы публикуем только реальные оценки.</strong> Рейтинг появится здесь автоматически после первых подтверждённых отзывов на площадках.</div>
+</div></div></section>
+</main>
+
+<footer id="contacts"><div class="wrap"><div class="avr-footer-grid">
+<div class="avr-footer-brand"><span class="avr">AV<span class="red">R</span></span><p><strong style="color:#fff">AV Rescue</strong><br>Помощь на дороге и эвакуация автомобилей в Москве, Московской области и по межгороду — круглосуточно.</p><div class="avr-footer-apps"><button type="button" onclick="window.AVRPWA&amp;&amp;window.AVRPWA.install('web-app')">Установить веб-версию</button><a href="/portal.php">Войти</a></div></div>
+<div class="avr-footer-col"><span class="footerTitle">Услуги</span><a href="/#order">Эвакуация</a><a href="/#order">Запуск двигателя</a><a href="/#order">Подвоз топлива</a><a href="/#order">Замена колеса</a><a href="/prices.php">Все тарифы</a></div>
+<div class="avr-footer-col"><span class="footerTitle">Клиентам и бизнесу</span><a href="/portal.php?role=client">Кабинет клиента</a><a href="/portal.php?role=b2b">Кабинет B2B</a><a href="/b2b-register.php">Стать B2B-клиентом</a><a href="/legal.php?doc=payment">Оплата и возврат</a></div>
+<div class="avr-footer-col"><span class="footerTitle">Исполнителям</span><a href="https://www.rustore.ru/catalog/app/ru.avrescue.app" target="_blank" rel="noopener">AVR Driver в RuStore</a><a href="/portal.php?role=executor">Веб-версия AVR Driver</a><a href="/executor-register.php">Стать исполнителем</a><a href="/blog.php">Полезные материалы</a></div>
+<div class="avr-footer-col"><span class="footerTitle">Компания</span><a href="tel:+79255845858">8 925 584-58-58</a><a href="https://max.ru/channel_avrescue" target="_blank" rel="noopener">MAX</a><a href="mailto:info@av-rescue.ru">info@av-rescue.ru</a><a href="/public-offer.php">Публичная оферта</a><a href="/executor-offer.php">Договор исполнителя</a><a href="/legal.php?doc=privacy">Конфиденциальность</a><a href="/legal.php?doc=terms">Пользовательское соглашение</a></div>
+</div><div class="footerBottom"><span>© AV Rescue, 2026. Все права защищены.</span><span>Москва, Московская область и межгород</span></div></div></footer>
+
+<link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css?v=1.9.4"><link rel="stylesheet" href="/assets/map-compat.css?v=270"><script src="/assets/vendor/leaflet/leaflet.js?v=1.9.4"></script><script src="/assets/map-compat.js?v=270"></script><script src="/assets/order-calculator.js?v=274"></script><script src="/assets/order-ui-v258.js?v=274"></script><script src="/assets/plate-input-v320.js?v=320"></script>
+<script>
+const serviceCards=[...document.querySelectorAll('#servicePicker .service')],serviceSelect=document.getElementById('service'),selectedServiceLabel=document.getElementById('selectedServiceLabel');
+function chooseService(card){serviceCards.forEach(item=>{const active=item===card;item.classList.toggle('selected',active);item.setAttribute('aria-pressed',active?'true':'false')});if(serviceSelect)serviceSelect.value=card.dataset.service||'';if(selectedServiceLabel)selectedServiceLabel.textContent=card.querySelector('h3')?.textContent||card.dataset.service||''}
+serviceCards.forEach(card=>{card.addEventListener('click',()=>chooseService(card));card.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();chooseService(card)}})});
+document.getElementById('serviceCalculate')?.addEventListener('click',()=>{const selected=document.querySelector('#servicePicker .service.selected');if(selected)chooseService(selected)});
+if(serviceCards[0])chooseService(serviceCards[0]);
+let homeCalc=null;window.avSessionRole='guest';
+document.querySelectorAll('.vehicleBtn').forEach(b=>b.addEventListener('click',()=>{
+ document.querySelectorAll('.vehicleBtn').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById('vehicleType').value=b.dataset.value;
+}));
+document.getElementById('locateBtn').addEventListener('click',()=>{if(!navigator.geolocation){alert('Геолокация не поддерживается браузером');return}navigator.geolocation.getCurrentPosition(async p=>{document.getElementById('lat').value=p.coords.latitude.toFixed(6);document.getElementById('lng').value=p.coords.longitude.toFixed(6);if(homeCalc){await homeCalc.drawRoute();homeCalc.quote().catch(()=>{})}},()=>alert('Не удалось получить местоположение. Поставьте точку на карте вручную.'))});
+document.getElementById('orderForm').addEventListener('submit',async e=>{
+ e.preventDefault();const form=e.currentTarget;const val=id=>document.getElementById(id).value||'';if(val('service')==='Эвакуация'&&!val('destination').trim()){alert('Укажите адрес назначения');document.getElementById('destination').focus();return}const btn=form.querySelector('.submit');btn.disabled=true;btn.textContent='Отправляем…';
+ try{if(!homeCalc)throw new Error('Карта ещё загружается');await homeCalc.ensureRoute();const quote=await homeCalc.quote();const paymentMethod=document.querySelector('input[name="payment_method"]:checked')?.value||'cash';const endpoint=window.avSessionRole==='b2b'?'/api/b2b_create_order.php':'/api/create_order.php';const accountPayment=window.avSessionRole==='b2b'&&['sbp','card'].includes(paymentMethod)?'online':paymentMethod;const payload=Object.assign(homeCalc.payload(),{license_plate:val('license_plate'),vehicle_weight_kg:val('vehicle_weight_kg'),vehicle_length_m:val('vehicle_length_m'),comment:val('comment'),name:val('name'),phone:val('phone'),payment_method:accountPayment});const r=await fetch(endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+   const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(parseErr){throw new Error('API не отвечает как PHP. Проверьте, что PHP включён на сайте. Код HTTP: '+r.status)}
+   if(!r.ok||!d.ok)throw new Error(d.error||('Ошибка сервера '+r.status));alert('Заявка '+d.order_id+' принята. Ориентировочная стоимость: '+Math.round(d.estimated_price||quote.price||0)+' ₽.');if(window.avSessionRole==='client'){location.href='/account.php';return}if(window.avSessionRole==='b2b'){location.href='/b2b.php';return}if(d.guest_status_url&&paymentMethod!=='cash'){location.href=d.guest_status_url;return}form.reset();document.getElementById('vehicleType').value='Легковой';document.querySelectorAll('.vehicleBtn').forEach(x=>x.classList.remove('active'));document.querySelector('.vehicleBtn')?.classList.add('active');}
+ catch(err){alert('Не удалось отправить заявку: '+err.message)}finally{btn.disabled=false;btn.textContent='Отправить заявку';}
+});
+function updateVehicleFields(){const type=vehicleType.value;const weight=['Легковой','Коммерческий'].includes(type);vehicleWeightWrap.hidden=!weight;vehicleLengthWrap.hidden=type!=='Коммерческий';vehicle_weight_kg.required=weight;vehicle_length_m.required=type==='Коммерческий'}
+document.querySelectorAll('.vehicleBtn').forEach(b=>b.addEventListener('click',()=>setTimeout(updateVehicleFields,0)));updateVehicleFields();
+ymaps.ready(()=>{homeCalc=AVOrderCalculator.init({mapId:'map',fields:{service:'service',vehicle:'vehicleType',address:'address',destination:'destination',lat:'lat',lng:'lng',destinationLat:'destination_lat',destinationLng:'destination_lng',distance:'distance_km',result:'priceResult'}})});
+</script>
+
+<script>
+(async function paymentAvailability(){try{const r=await fetch('/api/alfa_status.php',{cache:'no-store'}),d=await r.json();const enabled=!!(d.ok&&d.acquiring_connected);document.querySelectorAll('[data-online]').forEach(x=>x.disabled=!enabled);const hint=document.getElementById('paymentHint');if(hint)hint.textContent=enabled?'Для СБП или карты после создания заявки откроется защищённая страница оплаты.':'Онлайн-оплата появится после подключения банка.';}catch(e){document.querySelectorAll('[data-online]').forEach(x=>x.disabled=true)}})();
+</script>
+
+<script>
+(async function fillClient(){
+  const name=document.getElementById('name'),phone=document.getElementById('phone');
+  const storedName=sessionStorage.getItem('av_client_name')||'',storedPhone=sessionStorage.getItem('av_client_phone')||'';
+  if(storedName&&name)name.value=storedName;if(storedPhone&&phone)phone.value=storedPhone;
+  try{
+    const r=await fetch('/api/session_state.php?t='+Date.now(),{cache:'no-store',credentials:'include'});
+    const d=await r.json();
+    const a=document.getElementById('portalLoginLink');
+    if(a && d.ok && d.session){
+      a.href=d.session.portal_url||'/portal.php';
+      if(d.session.logged_in){
+        window.avSessionRole=d.session.role||'guest';
+        a.textContent=d.session.label||'Личный кабинет';
+        a.title=d.session.name ? ('Вы вошли как '+d.session.name) : 'Открыть кабинет';
+        document.querySelectorAll('.guestOnly').forEach(x=>x.hidden=true);
+        const notice=document.getElementById('authOrderNotice'),restricted=document.getElementById('authRestrictedNotice'),form=document.getElementById('orderForm'),customerData=document.getElementById('customerData');
+        if(d.session.role==='client'){
+          if(name){name.value=d.session.name||storedName;name.readOnly=true}if(phone){phone.value=d.session.phone||storedPhone;phone.readOnly=true}sessionStorage.setItem('av_client_name',d.session.name||'');sessionStorage.setItem('av_client_phone',d.session.phone||'');
+          if(notice){notice.style.display='block';notice.innerHTML='<strong>Заказ оформляется из вашего аккаунта.</strong><br>Имя и телефон подставлены автоматически, а заявка появится в личном кабинете.'}
+        }else if(d.session.role==='b2b'){
+          if(customerData)customerData.hidden=true;if(name)name.required=false;if(phone)phone.required=false;
+          const invoice=document.getElementById('invoicePayment');if(invoice){invoice.hidden=false;const radio=invoice.querySelector('input');if(radio)radio.checked=true}
+          if(notice){notice.style.display='block';notice.innerHTML='<strong>Создаётся корпоративный заказ '+(d.session.name||'B2B')+'.</strong><br>После отправки он появится в B2B кабинете и общем диспетчерском потоке.'}
+        }else{
+          if(form)form.hidden=true;if(restricted)restricted.style.display='block';
+        }
+      } else {
+        window.avSessionRole='guest';
+        a.textContent='Войти';
+      }
+    }
+  }catch(e){}
+})();
+window.addEventListener('pageshow',()=>{const n=sessionStorage.getItem('av_client_name'),p=sessionStorage.getItem('av_client_phone');if(n&&document.getElementById('name'))document.getElementById('name').value=n;if(p&&document.getElementById('phone'))document.getElementById('phone').value=p});
+</script>
+
+<script>
+(function(){
+  const token=sessionStorage.getItem('av_tab_session');
+  const hasPortalHint=document.documentElement.getAttribute('data-av-auth-page')==='1';
+  async function validate(){
+    try{
+      const r=await fetch('/api/tab_session.php',{
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded','X-AV-Tab-Session':token||''},
+        body:'token='+encodeURIComponent(token||''),
+        cache:'no-store',
+        credentials:'same-origin'
+      });
+      const d=await r.json();
+      if(d.expired){
+        sessionStorage.removeItem('av_tab_session');
+        if(hasPortalHint) location.replace('/login.php');
+      }
+    }catch(e){}
+  }
+  validate();
+})();
+</script>
+
+</body></html>
