@@ -1,0 +1,64 @@
+/* AV Rescue app access panels — v339 */
+.accountChoiceActions--driver{grid-template-columns:repeat(3,minmax(0,1fr))}
+.accountChoiceActions--driver .btn{padding-inline:10px}
+
+.appAccessSection{padding:26px 0;scroll-margin-top:96px}
+.appAccessPanel{border:1px solid #34383e;border-radius:18px;padding:30px;background:linear-gradient(145deg,#14171a,#090a0c);box-shadow:0 18px 55px #0006}
+.appAccessPanel--web{background:linear-gradient(145deg,#111419,#090a0c)}
+.appAccessIntro{max-width:850px}
+.appAccessIntro h2{font-size:clamp(28px,3.4vw,42px);line-height:1.1;letter-spacing:-.02em;margin:0 0 12px}
+.appAccessIntro p{max-width:780px;color:#b9bdc3;font-size:16px;line-height:1.55;margin:0}
+.appAccessGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:24px}
+.appAccessCard{min-width:0;border:1px solid #34383e;border-radius:14px;padding:22px;background:#0b0d10}
+.appAccessBadge{display:inline-block;color:#ff5962;font-size:10px;font-weight:900;letter-spacing:.13em;margin-bottom:12px}
+.appAccessCard h3{font-size:22px;line-height:1.18;margin:0 0 10px}
+.appAccessCard p{min-height:48px;color:#aeb3ba;font-size:14px;line-height:1.55;margin:0 0 18px}
+.appAccessCard>.btn{width:100%}
+.appAccessActions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.appAccessActions .btn{width:100%;min-width:0;padding-inline:12px;text-align:center}
+.appAccessActions--main{display:flex;flex-wrap:wrap;margin-top:22px}
+.appAccessActions--main .btn{width:auto;min-width:230px}
+.pwaHint{display:block;color:#858b92;font-size:11px;line-height:1.5;margin-top:12px}
+.appAccessFooter{display:flex;align-items:center;justify-content:space-between;gap:18px;border-top:1px solid #292d32;margin-top:22px;padding-top:18px;color:#8f949b;font-size:12px;line-height:1.45}
+.appAccessFooter a{color:#fff;font-weight:800;white-space:nowrap}
+.webAccessLayout{display:grid;grid-template-columns:minmax(220px,.7fr) minmax(0,1.3fr);gap:14px;margin-top:24px}
+.webAccessFor,.webAccessSteps{border:1px solid #34383e;border-radius:14px;padding:20px;background:#0b0d10}
+.webAccessFor strong,.webAccessSteps>strong{display:block;font-size:16px;margin-bottom:13px}
+.webAccessFor span{display:block;color:#c3c6cb;font-size:14px;line-height:1.4;padding:8px 0;border-top:1px solid #24282d}
+.webAccessSteps ol{margin:0;padding-left:22px;color:#b9bdc3;font-size:14px;line-height:1.55}
+.webAccessSteps li+li{margin-top:9px}
+.webAccessSteps b{color:#fff}
+
+@media(max-width:800px){
+  .accountChoiceActions--driver{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .appAccessGrid,.webAccessLayout{grid-template-columns:1fr}
+  .appAccessCard p{min-height:0}
+}
+
+@media(max-width:540px){
+  .accountChoices{padding:22px 0 8px}
+  .accountChoice{padding:18px;border-radius:14px;gap:16px}
+  .accountChoice h2{font-size:21px;margin:8px 0}
+  .accountChoice p{font-size:14px;line-height:1.45}
+  .accountChoiceActions,.accountChoiceActions--driver{grid-template-columns:1fr}
+  .accountChoiceActions .btn{min-height:48px;padding:12px 14px;font-size:15px;line-height:1.2}
+  .appAccessSection{padding:18px 0}
+  .appAccessPanel{padding:20px 18px;border-radius:14px;box-shadow:none}
+  .appAccessIntro h2{font-size:27px;line-height:1.12;letter-spacing:-.025em;margin-bottom:10px}
+  .appAccessIntro p{font-size:15px;line-height:1.5}
+  .appAccessGrid{gap:12px;margin-top:18px}
+  .appAccessCard{padding:18px 16px;border-radius:12px}
+  .appAccessCard h3{font-size:20px;line-height:1.2}
+  .appAccessCard p{font-size:14px;line-height:1.48;margin-bottom:15px}
+  .appAccessActions,.appAccessActions--main{display:grid;grid-template-columns:1fr;gap:9px}
+  .appAccessActions--main{margin-top:18px}
+  .appAccessActions .btn,.appAccessActions--main .btn,.appAccessCard>.btn{width:100%;min-width:0;min-height:48px;padding:12px 14px;font-size:15px;line-height:1.2}
+  .pwaHint{font-size:11px;line-height:1.45;margin-top:10px}
+  .appAccessFooter{display:grid;gap:10px;margin-top:18px;padding-top:15px}
+  .appAccessFooter a{white-space:normal}
+  .webAccessLayout{gap:10px;margin-top:18px}
+  .webAccessFor,.webAccessSteps{padding:16px;border-radius:12px}
+  .webAccessFor strong,.webAccessSteps>strong{font-size:15px;margin-bottom:10px}
+  .webAccessFor span,.webAccessSteps ol{font-size:13px;line-height:1.5}
+  #driver-app .avr-kicker,#web-app .avr-kicker{font-size:10px;line-height:1.35;margin-bottom:9px}
+}
