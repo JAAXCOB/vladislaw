@@ -1,0 +1,98 @@
+diff --git a/AVRescueClientAndroid/app/build.gradle b/AVRescueClientAndroid/app/build.gradle
+index cb9aebe..48ac726 100644
+--- a/AVRescueClientAndroid/app/build.gradle
++++ b/AVRescueClientAndroid/app/build.gradle
+@@ -6,7 +6,7 @@ android {
+         applicationId 'ru.avrescue.client'
+         minSdk 26
+         targetSdk 36
+-        versionCode 7
+-        versionName '1.0.6'
++        versionCode 8
++        versionName '1.0.7'
+     }
+ }
+diff --git a/AVRescueClientAndroid/app/src/main/AndroidManifest.xml b/AVRescueClientAndroid/app/src/main/AndroidManifest.xml
+index 83a4854..6cf69ce 100644
+--- a/AVRescueClientAndroid/app/src/main/AndroidManifest.xml
++++ b/AVRescueClientAndroid/app/src/main/AndroidManifest.xml
+@@ -4,7 +4,8 @@
+ <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+ <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+ <uses-permission android:name="android.permission.VIBRATE"/>
+-<application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:theme="@style/AppTheme" android:label="AV Rescue" android:usesCleartextTraffic="false">
++<supports-screens android:smallScreens="true" android:normalScreens="true" android:largeScreens="true" android:xlargeScreens="true" android:anyDensity="true"/>
++<application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:theme="@style/AppTheme" android:label="AV Rescue" android:usesCleartextTraffic="false" android:resizeableActivity="true">
+     <activity android:name=".VerificationActivity"/>
+     <activity android:name=".RegisterActivity"/>
+     <activity android:name=".OrderDetailActivity"/>
+diff --git a/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/Ui.java b/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/Ui.java
+index b05ef1b..10bba59 100644
+--- a/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/Ui.java
++++ b/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/Ui.java
+@@ -2,6 +2,10 @@ package ru.avrescue.app;
+ 
+ import android.graphics.Color;
+ import android.graphics.Typeface;
++import android.os.Build;
++import android.util.TypedValue;
++import android.view.Gravity;
++import android.view.ViewGroup;
+ import android.widget.*;
+ import android.content.Context;
+ 
+@@ -9,8 +13,10 @@ public final class Ui {
+  public static final int BG=Color.rgb(8,9,10), PANEL=Color.rgb(17,19,23), RED=Color.rgb(237,17,28), WHITE=Color.WHITE, MUTED=Color.rgb(174,179,186), GREEN=Color.rgb(53,208,127);
+ 
+  public static TextView text(Context c,String s,int sp,boolean bold){
+-   TextView v=new TextView(c); v.setText(s); v.setTextColor(WHITE); v.setTextSize(sp);
+-   if(bold)v.setTypeface(Typeface.DEFAULT,Typeface.BOLD); v.setPadding(0,8,0,8); return v;
++   TextView v=new TextView(c);v.setText(s);v.setTextColor(WHITE);v.setTextSize(TypedValue.COMPLEX_UNIT_SP,sp);
++   v.setMaxLines(Integer.MAX_VALUE);v.setHorizontallyScrolling(false);v.setIncludeFontPadding(true);
++   if(Build.VERSION.SDK_INT>=23){v.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY);v.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NORMAL);}
++   if(bold)v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);v.setPadding(0,dp(c,4),0,dp(c,4));return v;
+  }
+  public static TextView muted(Context c,String s,int sp){TextView v=text(c,s,sp,false);v.setTextColor(MUTED);return v;}
+  public static EditText input(Context c,String hint){
+@@ -23,9 +29,10 @@ public final class Ui {
+    b.setBackgroundResource(R.drawable.button_red);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(c,7),0,dp(c,7));b.setLayoutParams(p);return b;
+  }
+  public static Button darkButton(Context c,String s){Button b=button(c,s);b.setBackgroundResource(R.drawable.button_dark);return b;}
+- public static LinearLayout column(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(c,20),dp(c,16),dp(c,20),dp(c,24));l.setBackgroundColor(BG);return l;}
++ public static LinearLayout column(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.VERTICAL);int widthDp=(int)(c.getResources().getDisplayMetrics().widthPixels/c.getResources().getDisplayMetrics().density);int side=widthDp<360?14:widthDp>=600?32:20;l.setPadding(dp(c,side),dp(c,16),dp(c,side),dp(c,24));l.setBackgroundColor(BG);l.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));return l;}
+  public static LinearLayout card(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(c,16),dp(c,14),dp(c,16),dp(c,14));l.setBackgroundResource(R.drawable.panel);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(c,7),0,dp(c,7));l.setLayoutParams(p);return l;}
+- public static TextView brand(Context c){return text(c,"AVR  Rescue",30,true);}
++ public static TextView brand(Context c){TextView v=text(c,"AVR  Rescue",30,true);v.setSingleLine(true);if(Build.VERSION.SDK_INT>=26)v.setAutoSizeTextTypeUniformWithConfiguration(22,30,1,TypedValue.COMPLEX_UNIT_SP);return v;}
+  public static TextView chip(Context c,String s,boolean good){TextView v=text(c,s,12,true);v.setTextColor(good?GREEN:MUTED);return v;}
++ public static Button navButton(Context c,String s){Button b=new Button(c);b.setText(s);b.setAllCaps(false);b.setTextColor(WHITE);b.setTextSize(TypedValue.COMPLEX_UNIT_SP,11);b.setMinWidth(0);b.setMinimumWidth(0);b.setMinHeight(0);b.setMinimumHeight(0);b.setGravity(Gravity.CENTER);b.setMaxLines(2);b.setPadding(dp(c,3),0,dp(c,3),0);b.setBackgroundColor(Color.TRANSPARENT);return b;}
+  public static int dp(Context c,int n){return (int)(n*c.getResources().getDisplayMetrics().density+.5f);}
+-}
+\ No newline at end of file
++}
+diff --git a/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java b/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java
+index f5855e6..fcf43c3 100644
+--- a/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java
++++ b/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java
+@@ -9,7 +9,8 @@ public class DashboardActivity extends Activity implements LocationListener{
+  protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);load();}
+  protected void onResume(){super.onResume();if(data!=null&&!staff()&&!polling){polling=true;handler.postDelayed(poll,3000);}}
+  protected void onPause(){super.onPause();handler.removeCallbacks(poll);handler.removeCallbacks(offerTicker);polling=false;}
+- void build(){root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);ScrollView s=new ScrollView(this);content=Ui.column(this);s.addView(content);root.addView(s,new LinearLayout.LayoutParams(-1,0,1));nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setBackgroundColor(Ui.PANEL);root.addView(nav,new LinearLayout.LayoutParams(-1,-2));setContentView(root);}
++ void build(){root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);ScrollView s=new ScrollView(this);s.setFillViewport(true);content=Ui.column(this);s.addView(content,new ScrollView.LayoutParams(-1,-2));root.addView(s,new LinearLayout.LayoutParams(-1,0,1));nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setGravity(Gravity.CENTER);nav.setBackgroundColor(Ui.PANEL);root.addView(nav,new LinearLayout.LayoutParams(-1,Ui.dp(this,64)));setContentView(root);applySystemInsets();}
++ void applySystemInsets(){root.setOnApplyWindowInsetsListener((view,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=bars.bottom;}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}root.setPadding(0,top,0,0);nav.setPadding(0,0,0,bottom);LinearLayout.LayoutParams params=(LinearLayout.LayoutParams)nav.getLayoutParams();params.height=Ui.dp(this,64)+bottom;nav.setLayoutParams(params);return insets;});root.requestApplyInsets();}
+  void header(){content.addView(Ui.brand(this));content.addView(Ui.chip(this,"● Москва • Московская область • межгород",true));}
+  void load(){content.removeAllViews();header();content.addView(Ui.muted(this,"Загрузка…",14));new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->render(r));}catch(Exception e){runOnUiThread(()->error("Нет связи с сервером"));}}).start();}
+  void refreshQuiet(){new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->{if(r.optBoolean("ok")){checkCancelledOrders(r,true);data=r;JSONObject p=r.optJSONObject("profile");role=p==null?"client":p.optString("role","client");executor="executor".equals(role);JSONObject ex=r.optJSONObject("executor");String executorStatus=ex==null?"":ex.optString("status");online=ex!=null&&("online".equals(executorStatus)||"reserved".equals(executorStatus)||"busy".equals(executorStatus));if(executor&&online)startDriverService();setupNav();if("Главная".equals(currentPage))home();else if("Работа на линии".equals(currentPage))linePage();else if("Заказы".equals(currentPage)||"Заявки и заказы".equals(currentPage))orders();else if("Доход и комиссия".equals(currentPage))finance();}});}catch(Exception ignored){}}).start();}
+@@ -19,10 +20,10 @@ public class DashboardActivity extends Activity implements LocationListener{
+  void checkCancelledOrders(JSONObject response,boolean notify){JSONArray orders=response.optJSONArray("orders");if(orders==null)return;for(int i=0;i<orders.length();i++){JSONObject order=orders.optJSONObject(i);if(order==null)continue;String id=order.optString("id",""),state=order.optString("status","");String previous=knownOrderStates.put(id,state);if(notify&&orderStatesInitialized&&previous!=null&&!"cancelled".equals(previous)&&"cancelled".equals(state)&&!"client".equals(order.optString("cancelled_by")))showCancellation(order);}orderStatesInitialized=true;}
+  void showCancellation(JSONObject order){String id=order.optString("id","");Intent open=new Intent(this,OrderDetailActivity.class).putExtra("order_id",id).putExtra("role",role).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);PendingIntent pi=PendingIntent.getActivity(this,("client-cancel-"+id).hashCode(),open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL_CANCELLATIONS):new Notification.Builder(this);b.setSmallIcon(android.R.drawable.ic_dialog_alert).setContentTitle("Заказ отменён").setContentText("Заказ "+id+" отменён диспетчером").setAutoCancel(true).setContentIntent(pi).setPriority(Notification.PRIORITY_HIGH);((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(("client-cancel-"+id).hashCode(),b.build());}
+  boolean staff(){return "superadmin".equals(role)||"admin".equals(role)||"dispatcher".equals(role)||"staff".equals(role);}boolean admin(){return "superadmin".equals(role)||"admin".equals(role);}
+- void addNav(String t,Runnable r){Button b=new Button(this);b.setText(t);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setTextSize(10);b.setPadding(1,0,1,0);b.setBackgroundColor(Color.TRANSPARENT);b.setOnClickListener(v->r.run());nav.addView(b,new LinearLayout.LayoutParams(0,Ui.dp(this,54),1));}
++ void addNav(String t,Runnable r){Button b=Ui.navButton(this,t);b.setOnClickListener(v->r.run());nav.addView(b,new LinearLayout.LayoutParams(0,-1,1));}
+  void setupNav(){nav.removeAllViews();if(staff()){addNav("Главная",()->home());addNav("Заказы",()->orders());addNav("Водители",()->resources("workers","Исполнители"));addNav("Автопарк",()->resources("fleet","Автопарк"));addNav("Ещё",()->more());}else if(executor){addNav("Главная",()->home());addNav("Заказы",()->orders());addNav(online?"На линии":"Не на линии",()->linePage());addNav("Доход",()->finance());addNav("Ещё",()->more());}else{addNav("Главная",()->home());addNav("Заказы",()->orders());addNav("Помощь",()->startActivity(new Intent(this,CreateOrderActivity.class)));addNav("Профиль",()->more());}}
+  void page(String t){currentPage=t;handler.removeCallbacks(offerTicker);offerTimer=null;offerDeadlineElapsed=0;content.removeAllViews();header();content.addView(Ui.text(this,t,25,true));}
+- void home(){page("Главная");JSONObject p=data.optJSONObject("profile"),ex=data.optJSONObject("executor");LinearLayout c=Ui.card(this);c.addView(Ui.text(this,"Здравствуйте, "+(p==null?"":p.optString("name")),22,true));c.addView(Ui.chip(this,"● "+roleRu(role),true));if(ex!=null){c.addView(Ui.muted(this,"Рейтинг "+ex.optDouble("rating",5)+" • комиссия "+Math.round(ex.optDouble("commission_rate",20))+"%",14));c.addView(Ui.chip(this,online?"● ВЫ НА ЛИНИИ":"● НЕ НА ЛИНИИ",online));}content.addView(c);JSONObject st=data.optJSONObject("stats");if(staff()&&st!=null){LinearLayout s=Ui.card(this);s.addView(Ui.text(this,"Сводка",19,true));s.addView(Ui.text(this,"Новые: "+st.optInt("new")+"   Активные: "+st.optInt("active"),16,true));s.addView(Ui.text(this,"Завершено: "+st.optInt("done")+"   Отменено: "+st.optInt("cancelled"),15,false));content.addView(s);}if(staff()){quick("Заявки и заказы","Диспетчерская",()->orders());quick("Исполнители","Статусы, рейтинг, геопозиция",()->resources("workers","Исполнители"));if(admin())quick("Заявки на регистрацию","Документы и автоматические проверки",()->applications());}else if(executor){driverOffer();partnerOrdersSection(2);quick("Работа на линии",online?"GPS передаётся • система ищет заказы рядом":"Выйдите на линию, чтобы получать ближайшие заказы",()->linePage());quick("Мои заказы","Предложения и активные заказы",()->orders());quick("Доход и комиссия","Баланс, комиссия AV Rescue и к выплате",()->finance());}else{quick("Вызвать помощь","Рассчитать стоимость и создать заказ",()->startActivity(new Intent(this,CreateOrderActivity.class)));quick("Мои заказы","Отслеживание, стоимость и рейтинг",()->orders());}preview();}
++ void home(){page("Главная");JSONObject p=data.optJSONObject("profile"),ex=data.optJSONObject("executor");LinearLayout c=Ui.card(this);c.addView(Ui.text(this,"Здравствуйте, "+(p==null?"":p.optString("name")),22,true));c.addView(Ui.chip(this,"● "+roleRu(role),true));if(ex!=null){c.addView(Ui.muted(this,"Рейтинг "+ex.optDouble("rating",5)+" • комиссия "+Math.round(ex.optDouble("commission_rate",20))+"%",14));c.addView(Ui.chip(this,online?"● ВЫ НА ЛИНИИ":"● НЕ НА ЛИНИИ",online));}content.addView(c);JSONObject st=data.optJSONObject("stats");if(staff()&&st!=null){LinearLayout s=Ui.card(this);s.addView(Ui.text(this,"Сводка",19,true));s.addView(Ui.text(this,"Новые: "+st.optInt("new")+"   Активные: "+st.optInt("active"),16,true));s.addView(Ui.text(this,"Завершено: "+st.optInt("done")+"   Отменено: "+st.optInt("cancelled"),15,false));content.addView(s);}if(staff()){quick("Заявки и заказы","Диспетчерская",()->orders());quick("Исполнители","Статусы, рейтинг, геопозиция",()->resources("workers","Исполнители"));if(admin())quick("Заявки на регистрацию","Документы и автоматические проверки",()->applications());preview();}else if(executor){driverOffer();partnerOrdersSection(2);quick("Работа на линии",online?"GPS передаётся • система ищет заказы рядом":"Выйдите на линию, чтобы получать ближайшие заказы",()->linePage());quick("Мои заказы","Предложения и активные заказы",()->orders());quick("Доход и комиссия","Баланс, комиссия AV Rescue и к выплате",()->finance());}else{quick("Вызвать помощь","Рассчитать стоимость и создать заказ",()->startActivity(new Intent(this,CreateOrderActivity.class)));quick("Мои заказы","История и отслеживание заказов",()->orders());}}
+  void driverOffer(){JSONArray a=data.optJSONArray("orders");if(a==null)return;for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null&&"offered".equals(o.optString("status"))){String id=o.optString("id");notifiedOfferId=id;LinearLayout c=Ui.card(this);c.addView(Ui.text(this,"НОВЫЙ ЗАКАЗ",21,true));c.addView(Ui.text(this,o.optString("service","Услуга"),18,true));c.addView(Ui.muted(this,"Подача: "+o.optString("address","Не указана"),14));c.addView(Ui.muted(this,"Назначение: "+o.optString("destination","Не указано"),14));double price=o.optDouble("estimated_price",0);double rate=data.optJSONObject("executor")==null?20:data.optJSONObject("executor").optDouble("commission_rate",20);if(price>0){c.addView(Ui.text(this,Math.round(price)+" ₽",22,true));c.addView(Ui.muted(this,"Комиссия "+Math.round(rate)+"% • вам ≈ "+Math.round(price*(1-rate/100.0))+" ₽",14));}int eta=o.optInt("estimated_arrival_min",0);if(eta>0)c.addView(Ui.chip(this,"До клиента ≈ "+eta+" мин",true));int seconds=Math.max(0,Math.min(300,o.optInt("offer_seconds_left",300)));offerDeadlineElapsed=SystemClock.elapsedRealtime()+seconds*1000L;offerTimer=Ui.chip(this,"На принятие: "+offerTimeLeft(),true);c.addView(offerTimer);Button accept=Ui.button(this,"Принять заказ");accept.setOnClickListener(v->acceptAndOpen(id,accept));c.addView(accept);content.addView(c);handler.removeCallbacks(offerTicker);handler.post(offerTicker);break;}}}
+  String offerTimeLeft(){long millis=Math.max(0,offerDeadlineElapsed-SystemClock.elapsedRealtime());long left=(millis+999)/1000;return String.format(java.util.Locale.US,"%d:%02d",left/60,left%60);}
+  void acceptAndOpen(String id,Button button){stopOfferAlert();button.setEnabled(false);button.setText("Принимаем заказ…");new Thread(()->{try{JSONObject r=ApiClient.post("/api/mobile_order_action.php",new JSONObject().put("order_id",id).put("action","accept"));runOnUiThread(()->{if(r.optBoolean("ok")&&"assigned".equals(r.optString("status"))){handler.removeCallbacks(offerTicker);openOrder(id);}else{button.setEnabled(true);button.setText("Принять заказ");Toast.makeText(this,r.optString("error","Заказ уже недоступен"),Toast.LENGTH_LONG).show();refreshQuiet();}});}catch(Exception e){runOnUiThread(()->{button.setEnabled(true);button.setText("Принять заказ");Toast.makeText(this,"Нет связи с AV Rescue",Toast.LENGTH_LONG).show();});}}).start();}
