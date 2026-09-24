@@ -1,4 +1,4 @@
-name: Build AVR Android Release 3.21 / Client 1.0.6
+name: Build AVR Android Release 3.21 / Client 1.0.7
 
 on:
   push:
@@ -21,6 +21,7 @@ jobs:
           git apply ci/android-2.3.11-notifications.patch
           git apply ci/android-3.20-driver-ui.patch
           git apply ci/android-3.21-payouts.patch
+          git apply ci/android-client-1.0.7-adaptive.patch
       - name: Install Android SDK
         run: |
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)
@@ -66,10 +67,10 @@ jobs:
         run: |
           mkdir artifacts
           cp AVRescueAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AVR_Driver_3.21_unsigned.apk
-          cp AVRescueClientAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AV_Rescue_Client_1.0.6_unsigned.apk
+          cp AVRescueClientAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AV_Rescue_Client_1.0.7_unsigned.apk
           cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" artifacts/apksigner.jar
       - uses: actions/upload-artifact@v4
         with:
-          name: AV-Rescue-Android-Release-3.21-Client-1.0.6
+          name: AV-Rescue-Android-Release-3.21-Client-1.0.7
           path: artifacts/*
           retention-days: 30
