@@ -39,6 +39,17 @@ def test_road_pull_is_standalone_service_with_explicit_amount():
     assert job.services[0].name == "Вытаскивание на дорожное полотно"
 
 
+def test_road_pull_uses_fixed_rate_when_amount_is_omitted():
+    job = parse_explicit_closed_report(
+        "Заявка закрыта О467НС797 вытащили на дорожное полотно"
+    )
+    assert job is not None
+    assert job.total_amount_rub == 14000
+    assert [(item.name, item.price_rub) for item in job.services] == [
+        ("Вытаскивание на дорожное полотно", 14000),
+    ]
+
+
 def test_distance_only_close_includes_base_rate():
     job = parse_explicit_closed_report("Заявка закрыта Geely | Н957ОР797 | От МКАД 1 км. 90 руб.")
     assert job is not None
