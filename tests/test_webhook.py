@@ -17,6 +17,7 @@ os.environ.setdefault("MAX_WEBHOOK_SECRET", "test-secret-ABC")
 os.environ.setdefault("MAX_WEBHOOK_URL", "https://example.com/webhook")
 
 from webhook.extractor import _structured_request_overrides  # noqa: E402
+from webhook import av_rescue_client  # noqa: E402
 from webhook.main import app  # noqa: E402
 
 VALID_SECRET = "test-secret-ABC"
@@ -111,6 +112,24 @@ def post_webhook(client: TestClient, payload: dict, secret: str = VALID_SECRET):
             "X-Max-Bot-Api-Secret": secret,
         },
     )
+
+
+def test_explicit_close_sync_uses_plate_and_stable_source_id(monkeypatch) -> None:
+    captured = []
+    monkeypatch.setattr(av_rescue_client, "_deliver_with_retry", captured.append)
+    av_rescue_client.sync_explicit_close(
+        -73220767988430,
+        "mid.close-1",
+        "Заявка закрыта А123ВС797",
+    )
+    assert captured == [{
+        "event": "close",
+        "source_id": "max:-73220767988430:mid.close-1",
+        "source_chat_id": "-73220767988430",
+        "source_message_id": "mid.close-1",
+        "license_plate": "А123ВС797",
+        "comment": "Заявка закрыта А123ВС797",
+    }]
 
 
 # ---------------------------------------------------------------------------

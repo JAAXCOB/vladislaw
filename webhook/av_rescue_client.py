@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from webhook.config import settings
+from webhook.reporting_rules import normalize_plate
 from webhook.schema import ExtractedJob
 
 log = logging.getLogger("max_webhook.av_rescue")
@@ -145,3 +146,27 @@ def sync_extracted_job(
         "comment": job.customer_comment or original_text[:600],
     }
     _deliver_with_retry(payload)
+
+
+def sync_explicit_close(
+    chat_id: int | str | None,
+    message_id: str | None,
+    original_text: str,
+) -> None:
+    """Synchronize a deterministic close report used by the batch importer."""
+    if not message_id:
+        return
+    plate = normalize_plate(original_text)
+    if not plate:
+        log.warning("Explicit close sync skipped: no license plate | mid=%s", message_id)
+        return
+    _deliver_with_retry(
+        {
+            "event": "close",
+            "source_id": f"max:{chat_id or 'unknown'}:{message_id}",
+            "source_chat_id": str(chat_id or ""),
+            "source_message_id": message_id,
+            "license_plate": plate,
+            "comment": original_text[:600],
+        }
+    )
