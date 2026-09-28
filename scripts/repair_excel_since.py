@@ -28,7 +28,7 @@ load_dotenv()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from webhook.excel_writer import MONTH_NAMES as REPORT_MONTH_NAMES, append_job
-from webhook.payroll_writer import append_salary_row
+from webhook.payroll_writer import append_salary_row, ensure_employee_column
 from webhook.reporting_rules import employee_header, normalize_plate, parse_explicit_closed_report
 
 
@@ -323,6 +323,11 @@ def main() -> None:
     removed_legacy_sheet = bool(legacy_report_sheet) and remove_legacy_sheet(
         staged_report_path, legacy_report_sheet
     )
+
+    # Максим Бодров is a payroll driver.  Ensure his dedicated column exists
+    # before rebuilding rows; B2B-only senders such as Ann and olega remain
+    # deliberately unmatched and therefore never create payroll entries.
+    ensure_employee_column(staged_payroll_path, "Бодров Максим", at=since_dt)
 
     for record in records:
         append_job(staged_report_path, record.job, record.timestamp_ms, record.text)
