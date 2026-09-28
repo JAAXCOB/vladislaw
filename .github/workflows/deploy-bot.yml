@@ -5,6 +5,7 @@ on:
     branches:
       - claude/max-excel-evacuation-automation-zxuvb4
     paths:
+      - ".github/workflows/deploy-bot.yml"
       - "webhook/**"
       - "scripts/**"
       - "Dockerfile"
