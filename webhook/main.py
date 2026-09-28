@@ -5,17 +5,17 @@ Receives new and edited messages, runs one AI extraction, synchronizes the
 operational AV Rescue feed and keeps the existing Excel reporting. Runs continuously on a server
 (unlike scripts/poll.py, which is for local dev only).
 """
-import json
 import logging
 import secrets
 import sys
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
+from fastapi import FastAPI, Header, HTTPException, Request, status
 from pydantic import ValidationError
 
 from webhook.config import settings
 from webhook.av_rescue_client import pending_sync_count, sync_extracted_job
+from webhook.event_inbox import enqueue, pending_count as inbox_pending_count, start_worker, stop_worker
 from webhook.excel_writer import append_job
 from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
@@ -52,29 +52,35 @@ def ensure_payroll_structure() -> None:
     """Apply safe, idempotent payroll schema updates before accepting events."""
     if not settings.payroll_file_path:
         log.warning("PAYROLL_FILE_PATH not set — payroll structure was not checked")
-        return
-    for employee_name in ("Буревич Антон", "Николай Большаков", "Бодров Максим"):
-        sheet, column, created = ensure_employee_column(
-            settings.payroll_file_path,
-            employee_name,
-        )
-        log.info(
-            "Payroll employee column ready | sheet='%s' | column=%d | created=%s | employee=%s",
-            sheet,
-            column,
-            created,
-            employee_name,
-        )
+    else:
+        for employee_name in ("Буревич Антон", "Николай Большаков", "Бодров Максим"):
+            sheet, column, created = ensure_employee_column(
+                settings.payroll_file_path,
+                employee_name,
+            )
+            log.info(
+                "Payroll employee column ready | sheet='%s' | column=%d | created=%s",
+                sheet,
+                column,
+                created,
+            )
+    start_worker(process_update_payload)
+
+
+@app.on_event("shutdown")
+def shutdown_worker() -> None:
+    stop_worker()
 
 
 @app.get("/health")
 async def health() -> dict[str, str | int]:
     tracked_open_jobs = 0
-    if settings.max_chat_id:
-        tracked_open_jobs = len(OpenJobsTracker(settings.max_chat_id).list_open_jobs())
+    for chat_id in settings.allowed_chat_ids:
+        tracked_open_jobs += len(OpenJobsTracker(chat_id).list_open_jobs())
     return {
         "status": "ok",
         "partner_sync_queue": pending_sync_count(),
+        "event_inbox": inbox_pending_count(),
         "tracked_open_jobs": tracked_open_jobs,
     }
 
@@ -90,71 +96,77 @@ def process_message(
 ) -> None:
     """
     Runs AI extraction and writes the result to Excel (and payroll, if configured).
-    Executed as a background task so the webhook response isn't delayed.
+    Executed by the durable inbox worker after the webhook is acknowledged.
     """
-    try:
-        job = extract_job(text, sender_name)
-    except Exception:
-        log.exception("Extraction failed for message: %r", text)
-        return
+    job = extract_job(text, sender_name)
 
-    try:
-        sync_extracted_job(job, chat_id, message_id, text)
-    except Exception:
-        # Reporting must continue even when the site is temporarily unavailable.
-        log.exception("AV Rescue synchronization failed for message: %r", text)
+    sync_extracted_job(job, chat_id, message_id, text)
 
     if not job.is_closed_job_report:
-        log.info("Message does not report a closed job — skipping Excel: %r", text)
+        log.info("Message does not report a closed job | mid=%s", message_id)
         return
 
     if not settings.excel_file_path:
         log.warning("EXCEL_FILE_PATH not set — skipping Excel write")
         return
 
-    try:
-        sheet, inserted = append_job(
-            settings.excel_file_path,
+    sheet, inserted = append_job(
+        settings.excel_file_path,
+        job,
+        timestamp_ms,
+        text,
+        message_id or "",
+        is_edited,
+    )
+    if inserted:
+        log.info("Written to sheet '%s' (needs_review=%s)", sheet, job.needs_review)
+    else:
+        log.info("Existing MAX message in sheet '%s' was updated or skipped", sheet)
+
+    if settings.payroll_file_path:
+        payroll_sheet, matched, inserted = append_salary_row(
+            settings.payroll_file_path,
             job,
             timestamp_ms,
+            employee_header(employee_name),
             text,
             message_id or "",
             is_edited,
         )
-        if inserted:
-            log.info("Written to sheet '%s' (needs_review=%s)", sheet, job.needs_review)
-        else:
-            log.info("Existing MAX message in sheet '%s' was updated or skipped", sheet)
-    except Exception:
-        log.exception("Failed to write to Excel for message: %r", text)
-        return
+        log.info(
+            "Payroll sheet '%s' (matched=%s, inserted=%s)",
+            payroll_sheet,
+            matched,
+            inserted,
+        )
 
-    if settings.payroll_file_path:
-        try:
-            payroll_sheet, matched, inserted = append_salary_row(
-                settings.payroll_file_path,
-                job,
-                timestamp_ms,
-                employee_header(employee_name),
-                text,
-                message_id or "",
-                is_edited,
-            )
-            log.info(
-                "Payroll sheet '%s' (employee=%s, matched=%s, inserted=%s)",
-                payroll_sheet,
-                employee_name,
-                matched,
-                inserted,
-            )
-        except Exception:
-            log.exception("Failed to write to payroll file for message: %r", text)
+
+def process_update_payload(raw_json: dict[str, Any]) -> None:
+    """Process one already-authenticated event from the durable inbox."""
+    update = Update.model_validate(raw_json)
+    if update.update_type not in (UpdateType.message_created, UpdateType.message_edited) or not update.message:
+        return
+    msg = update.message
+    chat_id = msg.recipient.chat_id if msg.recipient else None
+    if str(chat_id) not in settings.allowed_chat_ids:
+        return
+    text = msg.resolve_text()
+    if not text:
+        return
+    process_message(
+        text,
+        msg.sender.display_name if msg.sender else "unknown",
+        msg.effective_sender_name(),
+        update.timestamp,
+        chat_id,
+        msg.body.mid if msg.body else None,
+        update.update_type == UpdateType.message_edited,
+    )
 
 
 @app.post("/webhook", status_code=status.HTTP_200_OK)
 async def webhook(
     request: Request,
-    background_tasks: BackgroundTasks,
     x_max_bot_api_secret: str = Header(default=""),
 ) -> dict[str, str]:
     """
@@ -170,15 +182,19 @@ async def webhook(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     # --- 2. Read raw body -----------------------------------------------------
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > 262_144:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Payload too large")
     raw_body = await request.body()
+    if len(raw_body) > 262_144:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Payload too large")
     try:
-        raw_json: dict[str, Any] = json.loads(raw_body)
-    except json.JSONDecodeError:
-        log.error("Received non-JSON body: %s", raw_body[:200])
+        raw_json = await request.json()
+        if not isinstance(raw_json, dict):
+            raise ValueError("JSON root must be an object")
+    except (ValueError, UnicodeDecodeError):
+        log.warning("Rejected invalid JSON body | bytes=%d", len(raw_body))
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON")
-
-    # --- 3. Log full raw payload (Phase 1 goal) --------------------------------
-    log.info("=== RAW MAX UPDATE ===\n%s", json.dumps(raw_json, ensure_ascii=False, indent=2))
 
     # --- 4. Parse into typed model (best-effort) --------------------------------
     try:
@@ -186,42 +202,33 @@ async def webhook(
     except ValidationError as exc:
         # Don't fail — we still want 200 so MAX doesn't retry.
         # Validation errors here just mean our model is incomplete.
-        log.warning("Update parsed with validation issues: %s", exc)
+        log.warning("Rejected unsupported/invalid update | errors=%d", exc.error_count())
         return {"ok": "true"}
 
     # --- 5. Process new and edited job messages ------------------------------------
     if update.update_type in (UpdateType.message_created, UpdateType.message_edited) and update.message:
         msg = update.message
-        sender_name = msg.sender.display_name if msg.sender else "unknown"
         sender_id = msg.sender.user_id if msg.sender else None
         chat_id = msg.recipient.chat_id if msg.recipient else None
-        text = msg.resolve_text()  # falls back to link.message.text for forwarded messages
         mid = msg.body.mid if msg.body else None
 
         log.info(
-            "%s | mid=%s | chat_id=%s | from=%s (id=%s) | text=%r",
+            "%s | mid=%s | chat_id=%s | sender_id=%s",
             update.update_type.value.upper(),
             mid,
             chat_id,
-            sender_name,
             sender_id,
-            text,
         )
 
-        configured_chat = str(settings.max_chat_id).strip()
-        if configured_chat and str(chat_id) != configured_chat:
-            log.info("Ignoring message from chat %s (configured chat: %s)", chat_id, configured_chat)
-        elif text:
-            employee_name = msg.effective_sender_name()
-            background_tasks.add_task(
-                process_message,
-                text,
-                sender_name,
-                employee_name,
-                update.timestamp,
-                chat_id,
+        if str(chat_id) not in settings.allowed_chat_ids:
+            log.warning("Ignored event from unauthorized chat | chat_id=%s | mid=%s", chat_id, mid)
+        else:
+            identifier, created = enqueue(raw_json)
+            log.info(
+                "Webhook durably accepted | event_id=%s | duplicate=%s | mid=%s",
+                identifier[:12],
+                not created,
                 mid,
-                update.update_type == UpdateType.message_edited,
             )
     else:
         log.info("UPDATE type=%s | timestamp=%s", update.update_type, update.timestamp)

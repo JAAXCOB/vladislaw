@@ -33,6 +33,7 @@ from webhook.excel_writer import (
     _rows_for_date_and_plate,
 )
 from webhook.schema import ExtractedJob
+from webhook.storage import atomic_save_workbook, locked_path_argument, safe_excel_text
 
 log = logging.getLogger("max_webhook.payroll")
 
@@ -186,6 +187,7 @@ def _match_employee_column(ws: Worksheet, employee_name: str) -> Optional[int]:
     return None
 
 
+@locked_path_argument()
 def ensure_employee_column(
     payroll_path: str | Path,
     employee_name: str,
@@ -230,7 +232,7 @@ def ensure_employee_column(
     target_col = ws.max_column + 1
     source = ws.cell(row=1, column=source_col)
     target = ws.cell(row=1, column=target_col)
-    target.value = normalized_name
+    target.value = safe_excel_text(normalized_name)
     if source.has_style:
         target.font = copy(source.font)
         target.alignment = copy(source.alignment)
@@ -241,7 +243,7 @@ def ensure_employee_column(
     source_letter = source.column_letter
     target_letter = target.column_letter
     ws.column_dimensions[target_letter].width = ws.column_dimensions[source_letter].width
-    wb.save(path)
+    atomic_save_workbook(wb, path)
 
     # Verify the persisted workbook before reporting success.
     check_wb = openpyxl.load_workbook(path, read_only=True, data_only=False)
@@ -260,10 +262,9 @@ def ensure_employee_column(
         )
 
     log.info(
-        "Added payroll employee column | sheet='%s' | column=%d | employee=%s",
+        "Added payroll employee column | sheet='%s' | column=%d",
         sheet_name,
         target_col,
-        normalized_name,
     )
     return sheet_name, target_col, True
 
@@ -295,6 +296,7 @@ def _find_duplicate_row(
     return None
 
 
+@locked_path_argument()
 def append_salary_row(
     payroll_path: str | Path,
     job: ExtractedJob,
@@ -325,8 +327,8 @@ def append_salary_row(
     if not _employee_columns(ws):
         raise ValueError(f"Wrong workbook configured as payroll report: {path.name}")
 
-    plate = job.license_plate or f"[НЕТ НОМЕРА] {original_text[:30]}"
-    service_text = _format_services(job) or original_text[:60]
+    plate = safe_excel_text(job.license_plate or f"[НЕТ НОМЕРА] {original_text[:30]}")
+    service_text = safe_excel_text(_format_services(job) or original_text[:60])
     amount = job.total_amount_rub
 
     matched_col = _match_employee_column(ws, employee_name) if amount is not None else None
@@ -334,12 +336,8 @@ def append_salary_row(
     if matched_col is None:
         wb.close()
         log.warning(
-            "PAYROLL ROW SKIPPED: employee was not matched | sheet='%s' | "
-            "plate=%s | employee=%s | amount=%s",
+            "PAYROLL ROW SKIPPED: employee was not matched | sheet='%s'",
             sheet_name,
-            plate,
-            employee_name,
-            amount,
         )
         return sheet_name, False, False
 
@@ -350,8 +348,8 @@ def append_salary_row(
             else None
         )
         target_ws.cell(row=target_row, column=1).value = job_date
-        target_ws.cell(row=target_row, column=2).value = plate
-        target_ws.cell(row=target_row, column=3).value = service_text
+        target_ws.cell(row=target_row, column=2).value = safe_excel_text(plate)
+        target_ws.cell(row=target_row, column=3).value = safe_excel_text(service_text)
         # An edit may change either the amount or the employee match. Remove
         # the old automated value before writing the current one. Numeric
         # protected columns (for example the column headed 750) are untouched.
@@ -373,14 +371,12 @@ def append_salary_row(
         indexed_ws, target_row = indexed
         original_date = _date_value(indexed_ws.cell(row=target_row, column=1).value) or dt.date()
         matched = update_row(indexed_ws, target_row, original_date)
-        wb.save(path)
+        atomic_save_workbook(wb, path)
         log.info(
-            "PAYROLL MESSAGE UPDATED | sheet='%s' | row=%d | mid=%s | plate=%s | employee=%s",
+            "PAYROLL MESSAGE UPDATED | sheet='%s' | row=%d | mid=%s",
             indexed_ws.title,
             target_row,
             message_id,
-            plate,
-            employee_name,
         )
         return indexed_ws.title, matched, False
 
@@ -390,21 +386,19 @@ def append_salary_row(
             target_row = legacy_rows[0]
             matched = update_row(ws, target_row, dt.date())
             _remember_message_row(wb, message_id, ws.title, target_row)
-            wb.save(path)
+            atomic_save_workbook(wb, path)
             log.info(
-                "PAYROLL LEGACY ROW UPDATED | sheet='%s' | row=%d | mid=%s | plate=%s",
+                "PAYROLL LEGACY ROW UPDATED | sheet='%s' | row=%d | mid=%s",
                 ws.title,
                 target_row,
                 message_id,
-                plate,
             )
             return ws.title, matched, False
         if len(legacy_rows) > 1:
             log.warning(
-                "PAYROLL AMBIGUOUS EDIT SKIPPED | sheet='%s' | mid=%s | plate=%s | rows=%s",
+                "PAYROLL AMBIGUOUS EDIT SKIPPED | sheet='%s' | mid=%s | rows=%s",
                 ws.title,
                 message_id,
-                plate,
                 legacy_rows,
             )
             return ws.title, matched_col is not None, False
@@ -416,13 +410,11 @@ def append_salary_row(
         matched = matched_col is not None
         _remember_message_row(wb, message_id, ws.title, duplicate_row)
         if message_id:
-            wb.save(path)
+            atomic_save_workbook(wb, path)
         log.info(
-            "PAYROLL DUPLICATE SKIPPED | sheet='%s' | row=%d | plate=%s | employee=%s",
+            "PAYROLL DUPLICATE SKIPPED | sheet='%s' | row=%d",
             sheet_name,
             duplicate_row,
-            plate,
-            employee_name,
         )
         return sheet_name, matched, False
 
@@ -435,7 +427,7 @@ def append_salary_row(
 
     target_row = _first_empty_row(ws)
     for col_idx, value in enumerate(row_values, 1):
-        ws.cell(row=target_row, column=col_idx).value = value
+        ws.cell(row=target_row, column=col_idx).value = safe_excel_text(value)
 
     _remember_message_row(wb, message_id, ws.title, target_row)
 
@@ -449,11 +441,11 @@ def append_salary_row(
             cell.fill = REVIEW_FILL
     ws.cell(row=target_row, column=1).number_format = DATE_FORMAT
 
-    wb.save(path)
+    atomic_save_workbook(wb, path)
 
     log.info(
-        "PAYROLL | sheet='%s' | row=%d | plate=%s | employee=%s | amount=%s | matched=%s",
-        sheet_name, target_row, plate, employee_name, amount, matched,
+        "PAYROLL | sheet='%s' | row=%d | matched=%s",
+        sheet_name, target_row, matched,
     )
 
     return sheet_name, matched, True

@@ -47,6 +47,7 @@ from webhook.models import Message
 from webhook.open_jobs_tracker import OpenJobsTracker
 from webhook.payroll_writer import append_salary_row
 from webhook.reporting_rules import employee_header, is_bot_generated_message
+from webhook.storage import atomic_write_json, locked_target
 
 STATE_PATH = Path(__file__).parent.parent / "data" / "import_state.json"
 MAX_PROCESSED_MIDS = 2000
@@ -73,10 +74,7 @@ def save_state(state: dict) -> None:
         for mid, fingerprint in state.get("message_fingerprints", {}).items()
         if mid in kept
     }
-    STATE_PATH.write_text(
-        json.dumps(state, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    atomic_write_json(STATE_PATH, state)
 
 
 def text_fingerprint(text: str) -> str:
@@ -121,6 +119,7 @@ def fetch_all_messages(client: httpx.Client, chat_id: str, oldest_ms: int, newes
     return all_messages
 
 
+@locked_target(STATE_PATH.with_name("daily_import.run"))
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hours", type=int, default=24, help="Rolling look-back window, every run (default: 24)")

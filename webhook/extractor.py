@@ -279,11 +279,10 @@ def extract_job(message_text: str, sender_name: str = "") -> ExtractedJob:
     local_job, source = _local_extraction(message_text)
     if local_job is not None:
         log.info(
-            "EXTRACTED | source=%s | is_closed=%s | is_new=%s | plate=%s",
+            "EXTRACTED | source=%s | is_closed=%s | is_new=%s",
             source,
             local_job.is_closed_job_report,
             local_job.is_new_job_request,
-            local_job.license_plate,
         )
         return local_job
 
@@ -312,9 +311,9 @@ def extract_job(message_text: str, sender_name: str = "") -> ExtractedJob:
         ],
     }
 
-    log.debug("Sending to YandexGPT: %r", message_text)
+    log.debug("Sending message to YandexGPT | characters=%d", len(message_text))
 
-    with httpx.Client(verify=False, timeout=30) as client:
+    with httpx.Client(timeout=30) as client:
         resp = client.post(
             settings.YANDEX_LLM_URL,
             headers={
@@ -326,24 +325,21 @@ def extract_job(message_text: str, sender_name: str = "") -> ExtractedJob:
         )
 
     if resp.status_code != 200:
-        raise RuntimeError(f"YandexGPT error {resp.status_code}: {resp.text[:300]}")
+        raise RuntimeError(f"YandexGPT error {resp.status_code}")
 
     raw_text = resp.json()["result"]["alternatives"][0]["message"]["text"]
-    log.debug("YandexGPT raw response: %s", raw_text)
+    log.debug("YandexGPT response received | characters=%d", len(raw_text))
 
     data = _parse_json_from_response(raw_text)
     job = ExtractedJob.model_validate(data)
     explicit = _structured_request_overrides(message_text)
     if explicit:
-        job = job.model_copy(update=explicit)
+        job = ExtractedJob.model_validate({**job.model_dump(), **explicit})
 
     log.info(
-        "EXTRACTED | source=yandex | is_closed=%s | is_new=%s | plate=%s | make=%s %s | status=%s | confidence=%s | needs_review=%s | missing=%s",
+        "EXTRACTED | source=yandex | is_closed=%s | is_new=%s | status=%s | confidence=%s | needs_review=%s | missing=%s",
         job.is_closed_job_report,
         job.is_new_job_request,
-        job.license_plate,
-        job.vehicle_make,
-        job.vehicle_model or "",
         job.status,
         job.confidence,
         job.needs_review,

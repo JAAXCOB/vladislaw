@@ -38,9 +38,9 @@ def main() -> None:
 
     marker: int | None = None
 
-    # verify=False: platform-api2.max.ru uses a Russian government CA (Минцифры)
-    # not included in standard CA bundles. Safe for local dev polling only.
-    with httpx.Client(timeout=POLL_TIMEOUT + 5, verify=False) as client:
+    # TLS verification is mandatory. Install the required trusted CA in the
+    # system store (or configure SSL_CERT_FILE) instead of disabling checks.
+    with httpx.Client(timeout=POLL_TIMEOUT + 5) as client:
         while True:
             params: dict[str, object] = {"timeout": POLL_TIMEOUT}
             if marker is not None:

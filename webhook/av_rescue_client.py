@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -18,9 +18,11 @@ import httpx
 from webhook.config import settings
 from webhook.reporting_rules import normalize_plate
 from webhook.schema import ExtractedJob
+from webhook.storage import atomic_write_json, file_lock
 
 log = logging.getLogger("max_webhook.av_rescue")
-_queue_lock = threading.Lock()
+MAX_DELIVERY_ATTEMPTS = 10
+MAX_RETRY_DELAY_SECONDS = 3600
 
 
 def _split_destination_field(original_text: str, fallback: str | None) -> tuple[str | None, str | None]:
@@ -48,30 +50,59 @@ def _queue_path() -> Path:
     return path
 
 
-def _read_queue() -> list[dict[str, Any]]:
-    path = _queue_path()
+def _read_queue(path: Path | None = None) -> list[dict[str, Any]]:
+    path = path or _queue_path()
     if not path.exists():
         return []
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
+        if not isinstance(data, list):
+            raise ValueError("queue root must be a list")
+        normalized = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            if "payload" in item:
+                normalized.append(item)
+            else:  # Migrate the original payload-only queue format.
+                normalized.append({"payload": item, "attempts": 0, "next_attempt_at": 0})
+        return normalized
     except Exception:
         log.exception("Cannot read AV Rescue retry queue")
-        return []
+        raise
 
 
 def pending_sync_count() -> int:
     """Number of partner events waiting for a retry (used by /health)."""
-    with _queue_lock:
-        return len(_read_queue())
-
-
-def _write_queue(items: list[dict[str, Any]]) -> None:
     path = _queue_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(items[-500:], ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    with file_lock(path):
+        try:
+            return len(_read_queue(path))
+        except Exception:
+            return -1
+
+
+def _write_queue(items: list[dict[str, Any]], path: Path | None = None) -> None:
+    atomic_write_json(path or _queue_path(), items)
+
+
+def _dead_queue_path() -> Path:
+    path = _queue_path()
+    return path.with_name(path.stem + ".dead" + path.suffix)
+
+
+def _payload_key(payload: dict[str, Any]) -> tuple[Any, Any]:
+    return payload.get("source_id"), payload.get("event")
+
+
+def _failure_record(payload: dict[str, Any], previous: dict[str, Any] | None = None) -> dict[str, Any]:
+    attempts = int((previous or {}).get("attempts", 0)) + 1
+    delay = min(MAX_RETRY_DELAY_SECONDS, 15 * (2 ** min(attempts - 1, 8)))
+    return {
+        "payload": payload,
+        "attempts": attempts,
+        "next_attempt_at": int(time.time()) + delay,
+    }
 
 
 def _post(payload: dict[str, Any]) -> bool:
@@ -88,29 +119,49 @@ def _post(payload: dict[str, Any]) -> bool:
         if response.status_code == 200 and response.json().get("ok") is True:
             log.info("AV Rescue sync delivered | event=%s", payload.get("event", "unknown"))
             return True
-        log.error("AV Rescue sync failed: HTTP %s %s", response.status_code, response.text[:300])
+        log.error("AV Rescue sync failed: HTTP %s", response.status_code)
     except Exception:
         log.exception("AV Rescue sync request failed")
     return False
 
 
 def _deliver_with_retry(payload: dict[str, Any]) -> None:
-    with _queue_lock:
-        pending = _read_queue()
-        remaining: list[dict[str, Any]] = []
-        for queued in pending:
-            if not _post(queued):
-                remaining.append(queued)
+    """Try the current payload and a small due batch without blocking on the full queue."""
+    path = _queue_path()
+    with file_lock(path):
+        pending = _read_queue(path) if path.exists() else []
+        key = _payload_key(payload)
+        previous = next(
+            (item for item in pending if _payload_key(item.get("payload", {})) == key), None
+        )
+        pending = [item for item in pending if _payload_key(item.get("payload", {})) != key]
+
         if not _post(payload):
-            remaining = [
-                queued for queued in remaining
-                if not (
-                    queued.get("source_id") == payload.get("source_id")
-                    and queued.get("event") == payload.get("event")
-                )
-            ]
-            remaining.append(payload)
-        _write_queue(remaining)
+            failed = _failure_record(payload, previous)
+            if failed["attempts"] >= MAX_DELIVERY_ATTEMPTS:
+                dead_path = _dead_queue_path()
+                dead = _read_queue(dead_path) if dead_path.exists() else []
+                dead.append(failed)
+                _write_queue(dead, dead_path)
+            else:
+                pending.append(failed)
+
+        now = int(time.time())
+        due = [item for item in pending if int(item.get("next_attempt_at", 0)) <= now][:2]
+        for item in due:
+            pending.remove(item)
+            queued_payload = item.get("payload", {})
+            if _post(queued_payload):
+                continue
+            failed = _failure_record(queued_payload, item)
+            if failed["attempts"] >= MAX_DELIVERY_ATTEMPTS:
+                dead_path = _dead_queue_path()
+                dead = _read_queue(dead_path) if dead_path.exists() else []
+                dead.append(failed)
+                _write_queue(dead, dead_path)
+            else:
+                pending.append(failed)
+        _write_queue(pending, path)
 
 
 def sync_extracted_job(

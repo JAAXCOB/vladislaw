@@ -16,6 +16,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
 
 from webhook.schema import ExtractedJob
+from webhook.storage import atomic_save_workbook, locked_path_argument, safe_excel_text
 
 log = logging.getLogger("max_webhook.excel")
 
@@ -170,7 +171,7 @@ def _find_message_row(
     if index is None:
         return None
     for row in range(2, index.max_row + 1):
-        if str(index.cell(row=row, column=1).value or "") != message_id:
+        if str(index.cell(row=row, column=1).value or "") != str(safe_excel_text(message_id)):
             continue
         sheet_name = str(index.cell(row=row, column=2).value or "")
         target_row = index.cell(row=row, column=3).value
@@ -192,12 +193,12 @@ def _remember_message_row(
     assert index is not None
     index_row = None
     for row in range(2, index.max_row + 1):
-        if str(index.cell(row=row, column=1).value or "") == message_id:
+        if str(index.cell(row=row, column=1).value or "") == str(safe_excel_text(message_id)):
             index_row = row
             break
     if index_row is None:
         index_row = _first_empty_row(index)
-    index.cell(row=index_row, column=1).value = message_id
+    index.cell(row=index_row, column=1).value = safe_excel_text(message_id)
     index.cell(row=index_row, column=2).value = sheet_name
     index.cell(row=index_row, column=3).value = target_row
 
@@ -224,7 +225,7 @@ def _write_job_row(
 ) -> None:
     row = [job_date, plate, service_text, amount]
     for col_idx, value in enumerate(row, 1):
-        ws.cell(row=target_row, column=col_idx).value = value
+        ws.cell(row=target_row, column=col_idx).value = safe_excel_text(value)
     for col in range(1, 5):
         cell = ws.cell(row=target_row, column=col)
         cell.font = DEFAULT_FONT
@@ -250,6 +251,7 @@ def _find_duplicate_row(
     return None
 
 
+@locked_path_argument()
 def append_job(
     excel_path: str | Path,
     job: ExtractedJob,
@@ -281,8 +283,8 @@ def append_job(
     if headers != expected:
         raise ValueError(f"Wrong workbook configured as evacuation report: {path.name}")
 
-    plate = job.license_plate or f"[НЕТ НОМЕРА] {original_text[:30]}"
-    service_text = _format_services(job) or original_text[:60]
+    plate = safe_excel_text(job.license_plate or f"[НЕТ НОМЕРА] {original_text[:30]}")
+    service_text = safe_excel_text(_format_services(job) or original_text[:60])
     amount = job.total_amount_rub
 
     indexed = _find_message_row(wb, message_id)
@@ -298,14 +300,12 @@ def append_job(
             amount,
             job.needs_review,
         )
-        wb.save(path)
+        atomic_save_workbook(wb, path)
         log.info(
-            "EXCEL MESSAGE UPDATED | sheet='%s' | row=%d | mid=%s | plate=%s | amount=%s",
+            "EXCEL MESSAGE UPDATED | sheet='%s' | row=%d | mid=%s",
             indexed_ws.title,
             target_row,
             message_id,
-            plate,
-            amount,
         )
         return indexed_ws.title, False
 
@@ -326,21 +326,19 @@ def append_job(
                 job.needs_review,
             )
             _remember_message_row(wb, message_id, ws.title, target_row)
-            wb.save(path)
+            atomic_save_workbook(wb, path)
             log.info(
-                "EXCEL LEGACY ROW UPDATED | sheet='%s' | row=%d | mid=%s | plate=%s",
+                "EXCEL LEGACY ROW UPDATED | sheet='%s' | row=%d | mid=%s",
                 ws.title,
                 target_row,
                 message_id,
-                plate,
             )
             return ws.title, False
         if len(legacy_rows) > 1:
             log.warning(
-                "EXCEL AMBIGUOUS EDIT SKIPPED | sheet='%s' | mid=%s | plate=%s | rows=%s",
+                "EXCEL AMBIGUOUS EDIT SKIPPED | sheet='%s' | mid=%s | rows=%s",
                 ws.title,
                 message_id,
-                plate,
                 legacy_rows,
             )
             return ws.title, False
@@ -349,13 +347,11 @@ def append_job(
     if duplicate_row is not None:
         _remember_message_row(wb, message_id, ws.title, duplicate_row)
         if message_id:
-            wb.save(path)
+            atomic_save_workbook(wb, path)
         log.info(
-            "EXCEL DUPLICATE SKIPPED | sheet='%s' | row=%d | plate=%s | amount=%s",
+            "EXCEL DUPLICATE SKIPPED | sheet='%s' | row=%d",
             sheet_name,
             duplicate_row,
-            plate,
-            amount,
         )
         return sheet_name, False
 
@@ -371,14 +367,12 @@ def append_job(
     )
     _remember_message_row(wb, message_id, ws.title, target_row)
 
-    wb.save(path)
+    atomic_save_workbook(wb, path)
 
     log.info(
-        "EXCEL | sheet='%s' | row=%d | plate=%s | amount=%s | review=%s",
+        "EXCEL | sheet='%s' | row=%d | review=%s",
         sheet_name,
         target_row,
-        plate,
-        amount,
         job.needs_review,
     )
 

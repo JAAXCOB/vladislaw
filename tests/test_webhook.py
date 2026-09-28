@@ -7,6 +7,7 @@ Run:
 """
 import json
 import os
+from copy import deepcopy
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,9 +16,12 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("MAX_BOT_TOKEN", "test-token-placeholder")
 os.environ.setdefault("MAX_WEBHOOK_SECRET", "test-secret-ABC")
 os.environ.setdefault("MAX_WEBHOOK_URL", "https://example.com/webhook")
+os.environ.setdefault("MAX_CHAT_ID", "987654321")
 
 from webhook.extractor import _structured_request_overrides  # noqa: E402
-from webhook import av_rescue_client  # noqa: E402
+from webhook import av_rescue_client, event_inbox  # noqa: E402
+from webhook import open_jobs_tracker  # noqa: E402
+import webhook.main as main_module  # noqa: E402
 from webhook.main import app  # noqa: E402
 
 VALID_SECRET = "test-secret-ABC"
@@ -98,9 +102,21 @@ MESSAGE_INCOMPLETE_PAYLOAD = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def isolated_persistence(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(event_inbox.settings, "event_inbox_path", str(tmp_path / "event-inbox"))
+    monkeypatch.setattr(
+        av_rescue_client.settings,
+        "av_rescue_sync_queue_path",
+        str(tmp_path / "partner-queue.json"),
+    )
+    monkeypatch.setattr(open_jobs_tracker, "STATE_PATH", tmp_path / "open-jobs.json")
+
+
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def post_webhook(client: TestClient, payload: dict, secret: str = VALID_SECRET):
@@ -148,6 +164,39 @@ def test_message_created_returns_200(client: TestClient) -> None:
     resp = post_webhook(client, MESSAGE_CREATED_PAYLOAD)
     assert resp.status_code == 200
     assert resp.json() == {"ok": "true"}
+
+
+def test_authorized_message_is_persisted_before_success(client: TestClient, monkeypatch) -> None:
+    captured = []
+
+    def capture(payload):
+        captured.append(payload)
+        return "event-id", True
+
+    monkeypatch.setattr(main_module, "enqueue", capture)
+    resp = post_webhook(client, MESSAGE_CREATED_PAYLOAD)
+    assert resp.status_code == 200
+    assert captured == [MESSAGE_CREATED_PAYLOAD]
+
+
+def test_message_from_non_allowlisted_chat_is_not_enqueued(client: TestClient, monkeypatch) -> None:
+    payload = deepcopy(MESSAGE_CREATED_PAYLOAD)
+    payload["message"]["recipient"]["chat_id"] = 123
+
+    def must_not_run(_payload):
+        raise AssertionError("unauthorized chat was enqueued")
+
+    monkeypatch.setattr(main_module, "enqueue", must_not_run)
+    assert post_webhook(client, payload).status_code == 200
+
+
+def test_oversized_payload_is_rejected_before_parsing(client: TestClient) -> None:
+    response = client.post(
+        "/webhook",
+        content=b"x" * 262_145,
+        headers={"X-Max-Bot-Api-Secret": VALID_SECRET},
+    )
+    assert response.status_code == 413
 
 
 def test_bot_started_returns_200(client: TestClient) -> None:

@@ -9,9 +9,14 @@ test group can never mix with production tracking.
 from __future__ import annotations
 
 import json
+import os
 import re
+import time
+from copy import deepcopy
 from pathlib import Path
 from typing import Optional
+
+from webhook.storage import atomic_write_json, file_lock
 
 STATE_PATH = Path(__file__).parent.parent / "data" / "open_jobs_state.json"
 
@@ -33,16 +38,17 @@ def _load_all() -> dict:
         try:
             return json.loads(STATE_PATH.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, ValueError):
+            corrupt = STATE_PATH.with_name(f"{STATE_PATH.name}.corrupt-{int(time.time())}")
+            try:
+                os.replace(STATE_PATH, corrupt)
+            except OSError:
+                pass
             return {"chats": {}}
     return {"chats": {}}
 
 
 def _save_all(data: dict) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    atomic_write_json(STATE_PATH, data)
 
 
 def _chat_state(data: dict, chat_id: str) -> dict:
@@ -63,7 +69,8 @@ class OpenJobsTracker:
 
     def __init__(self, chat_id: str):
         self.chat_id = str(chat_id)
-        self._data = _load_all()
+        with file_lock(STATE_PATH):
+            self._data = _load_all()
         self._chat = _chat_state(self._data, self.chat_id)
         # Migrate legacy keys that may contain Latin lookalikes. This also
         # collapses duplicate Cyrillic/Latin variants into one tracked job.
@@ -75,6 +82,7 @@ class OpenJobsTracker:
             migrated.setdefault(key, job)
             migrated[key]["plate"] = key
         self._chat["open_jobs"] = migrated
+        self._original_open_jobs = deepcopy(migrated)
         self.current_run = self._chat["run_counter"]  # set properly in start_run()
 
     def start_run(self) -> None:
@@ -122,4 +130,20 @@ class OpenJobsTracker:
         ]
 
     def save(self) -> None:
-        _save_all(self._data)
+        with file_lock(STATE_PATH):
+            latest = _load_all()
+            latest_chat = _chat_state(latest, self.chat_id)
+            original_keys = set(self._original_open_jobs)
+            current_keys = set(self._chat["open_jobs"])
+            for removed in original_keys - current_keys:
+                latest_chat["open_jobs"].pop(removed, None)
+            for key in current_keys:
+                if key not in original_keys or self._chat["open_jobs"][key] != self._original_open_jobs.get(key):
+                    latest_chat["open_jobs"][key] = self._chat["open_jobs"][key]
+            latest_chat["run_counter"] = max(
+                int(latest_chat.get("run_counter", 0)), int(self._chat.get("run_counter", 0))
+            )
+            _save_all(latest)
+            self._data = latest
+            self._chat = latest_chat
+            self._original_open_jobs = deepcopy(latest_chat["open_jobs"])

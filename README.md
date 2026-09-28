@@ -2,7 +2,8 @@
 
 Automated pipeline: MAX group chat → AI extraction → Excel/database.
 
-**Current phase: Phase 1 PoC** — receive raw MAX webhook events and log the JSON payload.
+Authenticated MAX events are persisted before acknowledgement, validated, and
+then synchronized with Excel and the AV Rescue partner API.
 
 ---
 
@@ -41,10 +42,13 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Fill in MAX_BOT_TOKEN, MAX_WEBHOOK_SECRET, MAX_WEBHOOK_URL
+# Fill in MAX_BOT_TOKEN, MAX_WEBHOOK_SECRET, MAX_WEBHOOK_URL, MAX_CHAT_ID
 ```
 
 `MAX_WEBHOOK_SECRET` — any string of `A-Z a-z 0-9 -`, 5–256 chars. You invent it; MAX echoes it back in the `X-Max-Bot-Api-Secret` header so you can verify requests.
+
+`MAX_CHAT_ID` is mandatory and acts as an allowlist. Separate multiple allowed
+numeric chat IDs with commas.
 
 ### 3. Run tests (no token needed)
 
@@ -65,7 +69,7 @@ MAX delivers updates directly without needing a webhook.
 python scripts/poll.py
 ```
 
-Send a message in the MAX test group → it prints the full JSON.
+Send a message in the MAX test group to exercise the local polling flow.
 
 ---
 
@@ -88,7 +92,7 @@ python scripts/register_webhook.py
 ```
 
 MAX will start POSTing events to your `/webhook` endpoint.  
-Check your server logs — you should see the full JSON of every group message.
+Logs show event IDs and processing status without message bodies or customer data.
 
 ---
 
@@ -98,7 +102,7 @@ Check your server logs — you should see the full JSON of every group message.
 |---|---|
 | Path | `POST /webhook` |
 | Auth | `X-Max-Bot-Api-Secret` header must match `MAX_WEBHOOK_SECRET` |
-| Response | Always `200 {"ok": "true"}` (so MAX doesn't retry) |
+| Response | `200 {"ok": "true"}` after an accepted event is persisted locally |
 | Error | `403` on wrong secret, `400` on invalid JSON |
 
 ---

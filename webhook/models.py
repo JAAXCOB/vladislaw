@@ -56,9 +56,9 @@ class ChatAdminPermission(str, Enum):
 
 class User(BaseModel):
     user_id: int
-    first_name: str
-    last_name: Optional[str] = None
-    username: Optional[str] = None
+    first_name: str = Field(min_length=1, max_length=200)
+    last_name: Optional[str] = Field(None, max_length=200)
+    username: Optional[str] = Field(None, max_length=200)
     is_bot: bool = False
     last_activity_time: Optional[int] = None
 
@@ -77,16 +77,16 @@ class Recipient(BaseModel):
 
 
 class Attachment(BaseModel):
-    type: str
+    type: str = Field(min_length=1, max_length=100)
     payload: Optional[dict[str, Any]] = None
 
 
 class MessageBody(BaseModel):
-    mid: str
+    mid: str = Field(min_length=1, max_length=512)
     seq: Optional[int] = None
-    text: Optional[str] = None
-    attachments: Optional[list[Attachment]] = None
-    markup: Optional[list[Any]] = None
+    text: Optional[str] = Field(None, max_length=20_000)
+    attachments: Optional[list[Attachment]] = Field(None, max_length=100)
+    markup: Optional[list[Any]] = Field(None, max_length=100)
 
 
 class LinkedMessage(BaseModel):
@@ -141,7 +141,7 @@ class Update(BaseModel):
     is lost even if a field is not yet modelled.
     """
     update_type: UpdateType
-    timestamp: int
+    timestamp: int = Field(ge=0)
 
     # Present on message_created
     message: Optional[Message] = None

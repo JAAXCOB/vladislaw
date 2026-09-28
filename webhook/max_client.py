@@ -32,7 +32,7 @@ def send_message(
     if reply_to_mid:
         body["link"] = {"type": "reply", "mid": reply_to_mid}
 
-    with httpx.Client(verify=False, timeout=15) as client:
+    with httpx.Client(timeout=15) as client:
         resp = client.post(
             f"{api_base}/messages",
             headers={
@@ -46,4 +46,4 @@ def send_message(
     if resp.status_code != 200:
         raise RuntimeError(f"send_message failed: {resp.status_code} {resp.text[:300]}")
 
-    log.info("Sent message to chat_id=%s (reply_to=%s): %r", chat_id, reply_to_mid, text)
+    log.info("Sent message to chat_id=%s (reply_to=%s)", chat_id, reply_to_mid)
