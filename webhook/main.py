@@ -53,7 +53,7 @@ def ensure_payroll_structure() -> None:
     if not settings.payroll_file_path:
         log.warning("PAYROLL_FILE_PATH not set — payroll structure was not checked")
         return
-    for employee_name in ("Буревич Антон", "Николай Большаков"):
+    for employee_name in ("Буревич Антон", "Николай Большаков", "Бодров Максим"):
         sheet, column, created = ensure_employee_column(
             settings.payroll_file_path,
             employee_name,
