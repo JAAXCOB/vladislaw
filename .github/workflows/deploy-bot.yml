@@ -58,8 +58,19 @@ jobs:
              IFS= read -r AV_RESCUE_API_URL_INPUT
              cd /opt/vladislaw
              git fetch origin claude/max-excel-evacuation-automation-zxuvb4
+             BACKUP_DIR="/opt/backups/max-bot-pre-deploy-$(date -u +%Y%m%dT%H%M%SZ)"
+             install -d -m 0700 "$BACKUP_DIR"
+             git status --porcelain > "$BACKUP_DIR/git-status.txt"
+             git diff --binary > "$BACKUP_DIR/server-local-changes.patch"
+             if ! git diff --quiet || ! git diff --cached --quiet; then
+               git stash push -m "AV Rescue pre-deploy backup $(date -u +%FT%TZ)"
+             fi
              git checkout claude/max-excel-evacuation-automation-zxuvb4
              git merge --ff-only origin/claude/max-excel-evacuation-automation-zxuvb4
+             if git rev-parse --verify refs/stash >/dev/null 2>&1 && \
+                git show refs/stash:scripts/daily_import.py > "$BACKUP_DIR/daily_import.py" 2>/dev/null; then
+               cp "$BACKUP_DIR/daily_import.py" scripts/daily_import.py
+             fi
 
              export DEBIAN_FRONTEND=noninteractive
              apt-get update -qq
