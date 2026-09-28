@@ -68,6 +68,35 @@ def test_two_maxims_are_never_mixed_in_payroll():
     assert _match_employee_column(sheet, employee_header("Максим")) is None
 
 
+def test_vadim_alias_matches_existing_payroll_column():
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["Дата", "VIN/Гос.номер ТС", "Услуга", "Вадим Водитель"])
+
+    assert _match_employee_column(sheet, employee_header("Вадим Новиков")) == 4
+
+
+def test_unmatched_driver_does_not_create_empty_payroll_row(tmp_path):
+    payroll_path = tmp_path / "payroll.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Сентябрь"
+    sheet.append(["Дата", "VIN/Гос.номер ТС", "Услуга", "Вадим Водитель", 750])
+    workbook.save(payroll_path)
+
+    timestamp = int(datetime(2026, 9, 12, tzinfo=timezone.utc).timestamp() * 1000)
+    result = append_salary_row(
+        payroll_path,
+        _closed_job("А123ВС797", 4500),
+        timestamp,
+        "Неизвестный водитель",
+    )
+
+    assert result == ("Сентябрь", False, False)
+    saved = openpyxl.load_workbook(payroll_path)
+    assert saved["Сентябрь"].max_row == 1
+
+
 def test_max_sender_keeps_last_name_and_uses_specific_alias():
     message = Message(
         sender=User(user_id=1, first_name="Николай", last_name="Большаков")

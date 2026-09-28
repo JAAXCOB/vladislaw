@@ -1,4 +1,5 @@
-name: Repair B2B Excel from 7 September
+# Rebuild September after the 2026-09-28 parser and payroll corrections.
+name: Repair B2B Excel for September
 
 on:
   push:
@@ -41,8 +42,8 @@ jobs:
              .venv/bin/pytest -q tests/test_reporting_rules.py
              systemctl stop max-webhook.service
              trap "systemctl start max-webhook.service" EXIT
-             .venv/bin/python scripts/repair_excel_since.py --since 2026-09-07 --apply --quiet
-             .venv/bin/python scripts/close_reminder_duplicates.py --since 2026-09-07
+             .venv/bin/python scripts/repair_excel_since.py --since 2026-09-01 --apply --quiet
+             .venv/bin/python scripts/close_reminder_duplicates.py --since 2026-09-01
              systemctl start max-webhook.service
              trap - EXIT
              for attempt in 1 2 3 4 5; do

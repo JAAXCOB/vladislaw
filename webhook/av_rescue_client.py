@@ -51,6 +51,12 @@ def _read_queue() -> list[dict[str, Any]]:
     path = _queue_path()
     if not path.exists():
         return []
+
+
+def pending_sync_count() -> int:
+    """Number of partner events waiting for a retry (used by /health)."""
+    with _queue_lock:
+        return len(_read_queue())
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         return data if isinstance(data, list) else []

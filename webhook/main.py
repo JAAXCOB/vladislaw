@@ -15,10 +15,11 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, st
 from pydantic import ValidationError
 
 from webhook.config import settings
-from webhook.av_rescue_client import sync_extracted_job
+from webhook.av_rescue_client import pending_sync_count, sync_extracted_job
 from webhook.excel_writer import append_job
 from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
+from webhook.open_jobs_tracker import OpenJobsTracker
 from webhook.payroll_writer import append_salary_row, ensure_employee_column
 from webhook.reporting_rules import employee_header
 
@@ -67,8 +68,15 @@ def ensure_payroll_structure() -> None:
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health() -> dict[str, str | int]:
+    tracked_open_jobs = 0
+    if settings.max_chat_id:
+        tracked_open_jobs = len(OpenJobsTracker(settings.max_chat_id).list_open_jobs())
+    return {
+        "status": "ok",
+        "partner_sync_queue": pending_sync_count(),
+        "tracked_open_jobs": tracked_open_jobs,
+    }
 
 
 def process_message(

@@ -83,8 +83,13 @@ def message_text(item: dict) -> str:
 
 
 def sender_name(item: dict) -> str:
-    sender = item.get("sender") or {}
-    return str(sender.get("first_name") or "").strip()
+    linked_sender = ((item.get("link") or {}).get("sender") or {})
+    sender = linked_sender or item.get("sender") or {}
+    return " ".join(
+        str(sender.get(field) or "").strip()
+        for field in ("first_name", "last_name")
+        if str(sender.get(field) or "").strip()
+    )
 
 
 def correct_region_typo(plate: str, known_plates: list[str]) -> str:
@@ -195,6 +200,41 @@ def prune_since(path: Path, sheet_names: set[str], since: date) -> int:
     return removed
 
 
+def remove_legacy_sheet(path: Path, sheet_name: str) -> bool:
+    """Delete a legacy duplicate sheet after backup and full-month rebuild."""
+    workbook = openpyxl.load_workbook(path)
+    actual = next(
+        (name for name in workbook.sheetnames if name.casefold() == sheet_name.casefold()),
+        None,
+    )
+    if actual is None:
+        workbook.close()
+        return False
+    workbook.remove(workbook[actual])
+    workbook.save(path)
+    return True
+
+
+def compact_payroll_rows(path: Path, sheet_name: str) -> int:
+    """Remove rows that have no numeric salary in any employee column."""
+    workbook = openpyxl.load_workbook(path)
+    sheet = workbook[sheet_name]
+    removed = 0
+    for row in range(sheet.max_row, 1, -1):
+        has_salary = any(
+            isinstance(sheet.cell(row, column).value, (int, float))
+            for column in range(4, sheet.max_column + 1)
+        )
+        has_job_data = any(
+            sheet.cell(row, column).value is not None for column in range(1, 4)
+        )
+        if has_job_data and not has_salary:
+            sheet.delete_rows(row, 1)
+            removed += 1
+    workbook.save(path)
+    return removed
+
+
 def set_env_value(path: Path, key: str, value: str) -> None:
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     replacement = f"{key}={value}"
@@ -267,8 +307,15 @@ def main() -> None:
 
     since_date = since_dt.date()
     report_sheet = f"{REPORT_MONTH_NAMES[since_date.month]} {str(since_date.year)[2:]}"
-    removed_report = prune_since(report_path, {report_sheet, REPORT_MONTH_NAMES[since_date.month]}, since_date)
+    legacy_report_sheet = "Сентябро 26" if report_sheet == "Сентябрь 26" else ""
+    report_sheets = {report_sheet, REPORT_MONTH_NAMES[since_date.month]}
+    if legacy_report_sheet:
+        report_sheets.add(legacy_report_sheet)
+    removed_report = prune_since(report_path, report_sheets, since_date)
     removed_payroll = prune_since(payroll_path, {REPORT_MONTH_NAMES[since_date.month]}, since_date)
+    removed_legacy_sheet = bool(legacy_report_sheet) and remove_legacy_sheet(
+        report_path, legacy_report_sheet
+    )
 
     for record in records:
         append_job(report_path, record.job, record.timestamp_ms, record.text)
@@ -279,6 +326,10 @@ def main() -> None:
             employee_header(record.sender),
             record.text,
         )
+
+    removed_unassigned_payroll = compact_payroll_rows(
+        payroll_path, REPORT_MONTH_NAMES[since_date.month]
+    )
 
     env_path = Path(".env")
     set_env_value(env_path, "EXCEL_FILE_PATH", str(report_path.resolve()))
@@ -292,6 +343,8 @@ def main() -> None:
                 "records": len(records),
                 "removed_report_rows": removed_report,
                 "removed_payroll_rows": removed_payroll,
+                "removed_legacy_sheet": removed_legacy_sheet,
+                "removed_unassigned_payroll_rows": removed_unassigned_payroll,
             },
             ensure_ascii=False,
             indent=2,

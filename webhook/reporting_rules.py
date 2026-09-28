@@ -34,6 +34,10 @@ EMPLOYEE_ALIASES = {
     "буревич": "Буревич Антон",
     "anton": "Буревич Антон",
     "burevich": "Буревич Антон",
+    "вадим": "Вадим Водитель",
+    "vadim": "Вадим Водитель",
+    "новиков": "Вадим Водитель",
+    "novikov": "Вадим Водитель",
 }
 
 
@@ -88,37 +92,63 @@ def parse_explicit_closed_report(text: str) -> ExtractedJob | None:
     total = 0
     false_call = "ложн" in lower
 
+    road_pull_match = re.search(
+        r"(?:вытаскиван\w*|вытащ\w*|вытян\w*)\s+(?:на|к)\s+"
+        r"(?:дорожн\w*\s+)?полотн\w*[\s:;,.+\-–]*(\d{3,5})",
+        compact,
+        re.IGNORECASE,
+    )
+
     if false_call:
         amount = _number_after(r"ложн\w*\s+подач\w*\s+(\d{3,5})", compact) or 2000
         services.append(ServiceItem(name="Ложная подача", price_rub=amount))
         total += amount
     else:
         base = _number_after(r"эвакуац\w*\s+(\d{3,5})", compact)
-        if base is None:
+        if base is None and road_pull_match is None:
             # A close report containing a plate and charge components is still
             # an evacuation; the partner's fixed base rate is 4,500 roubles.
             amounts = [int(value) for value in re.findall(r"(?<!\d)(\d{2,5})\s*(?:р\.?|руб\.?|₽)", lower)]
             bare_4500 = re.search(r"(?<!\d)4500(?!\d)", compact) is not None
             if amounts or bare_4500:
                 base = 4500
-        if base is None:
+        if base is None and road_pull_match is None:
             return None
-        services.append(ServiceItem(name="Эвакуация", price_rub=base))
-        total += base
+        if base is not None:
+            services.append(ServiceItem(name="Эвакуация", price_rub=base))
+            total += base
+
+    if road_pull_match:
+        road_pull_amount = int(road_pull_match.group(1))
+        services.append(
+            ServiceItem(
+                name="Вытаскивание на дорожное полотно",
+                price_rub=road_pull_amount,
+            )
+        )
+        total += road_pull_amount
 
     if "бустер" in lower:
         booster = _number_after(r"бустер\w*\s+(\d{3,5})", compact) or 5000
         services.append(ServiceItem(name="Бустер", price_rub=booster))
         total += booster
 
-    block_match = re.search(r"(?:(?<!\d)(\d{1,2})\s*блок|блок\w*\s*[-–]?\s*(\d{1,2}))", lower)
+    # A number before "блок" is the quantity ("2 блока 1300"). A number
+    # after a bare plural is the price ("+блоки 1300"), never a quantity.
+    block_match = re.search(r"(?<!\d)(\d{1,2})\s*блок", lower)
     if block_match:
-        count = int(block_match.group(1) or block_match.group(2))
+        count = int(block_match.group(1))
         tail = compact[block_match.end():]
         explicit = _number_after(r"^\s*\(?\s*(\d{3,5})\s*\)?", tail)
         amount = explicit or count * 650
         services.append(ServiceItem(name=f"{count} блок" if count == 1 else f"{count} блока", price_rub=amount))
         total += amount
+    else:
+        bare_blocks = re.search(r"блок\w*[\s:;,.+\-–]*(\d{3,5})", compact, re.IGNORECASE)
+        if bare_blocks:
+            amount = int(bare_blocks.group(1))
+            services.append(ServiceItem(name="Блоки", price_rub=amount))
+            total += amount
 
     # Distance charges are normally written after the distance, e.g.
     # "16 км от МКАД 1440" or "20+1 км за МКАД 1890".

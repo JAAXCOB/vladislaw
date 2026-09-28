@@ -18,6 +18,27 @@ def test_missing_block_price_uses_partner_rate():
     assert job.total_amount_rub == 5150
 
 
+def test_bare_blocks_amount_is_price_not_thirteen_blocks():
+    job = parse_explicit_closed_report(
+        "Заявка закрыта о467нс797 эвакуация 4500 + блоки 1300"
+    )
+    assert job is not None
+    assert job.total_amount_rub == 5800
+    assert [(item.name, item.price_rub) for item in job.services] == [
+        ("Эвакуация", 4500),
+        ("Блоки", 1300),
+    ]
+
+
+def test_road_pull_is_standalone_service_with_explicit_amount():
+    job = parse_explicit_closed_report(
+        "Заявка закрыта А123ВС797 вытаскивание на дорожное полотно 14000"
+    )
+    assert job is not None
+    assert job.total_amount_rub == 14000
+    assert job.services[0].name == "Вытаскивание на дорожное полотно"
+
+
 def test_distance_only_close_includes_base_rate():
     job = parse_explicit_closed_report("Заявка закрыта Geely | Н957ОР797 | От МКАД 1 км. 90 руб.")
     assert job is not None
@@ -40,3 +61,6 @@ def test_employee_aliases_match_payroll_headers():
     assert employee_header("Антон") == "Буревич Антон"
     assert employee_header("Буревич Антон") == "Буревич Антон"
     assert employee_header("Anton") == "Буревич Антон"
+    assert employee_header("Вадим") == "Вадим Водитель"
+    assert employee_header("Vadim Novikov") == "Вадим Водитель"
+    assert employee_header("Новиков Вадим") == "Вадим Водитель"

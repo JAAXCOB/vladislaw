@@ -305,15 +305,12 @@ def append_salary_row(
     is_edited: bool = False,
 ) -> tuple[str, bool, bool]:
     """
-    Appends one row to the shared monthly payroll sheet: Дата/VIN/Услуга
-    are always filled, the amount is placed under the matched employee's
-    column only if the match is unambiguous. All employees stay on the same
-    worksheet as separate columns.
+    Appends one row to the shared monthly payroll sheet only when the driver
+    can be matched unambiguously. This prevents ordinary rows with a date,
+    plate and service but no salary amount from accumulating in the workbook.
 
-    Returns (sheet_name, matched, inserted) — matched=False means the row was
-    written but no employee column could be confidently identified, so
-    the amount cell was left blank for manual entry. inserted=False means
-    the same row already existed and was not written again.
+    Returns (sheet_name, matched, inserted). matched=False and inserted=False
+    means that no driver column was identified and nothing was written.
     """
     path = Path(payroll_path)
     if not path.exists():
@@ -333,6 +330,18 @@ def append_salary_row(
     amount = job.total_amount_rub
 
     matched_col = _match_employee_column(ws, employee_name) if amount is not None else None
+
+    if matched_col is None:
+        wb.close()
+        log.warning(
+            "PAYROLL ROW SKIPPED: employee was not matched | sheet='%s' | "
+            "plate=%s | employee=%s | amount=%s",
+            sheet_name,
+            plate,
+            employee_name,
+            amount,
+        )
+        return sheet_name, False, False
 
     def update_row(target_ws: Worksheet, target_row: int, job_date) -> bool:
         target_matched_col = (
