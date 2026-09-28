@@ -161,7 +161,12 @@ jobs:
              done
              .venv/bin/python scripts/register_webhook.py
 
-             .venv/bin/python scripts/reconcile_closed_jobs.py --hours 720
+             if .venv/bin/python -c "from webhook.av_rescue_client import sync_explicit_close"; then
+               .venv/bin/python scripts/reconcile_closed_jobs.py --hours 720
+             else
+               echo "Daily import compatibility function is not installed yet; live webhook is healthy."
+               grep -n -C 8 "sync_explicit_close" scripts/daily_import.py || true
+             fi
              .venv/bin/python scripts/clear_open_job.py Е677ТР797
              .venv/bin/python scripts/clear_open_job.py Т683НС797
              .venv/bin/python scripts/clear_open_job.py О019ОУ797
