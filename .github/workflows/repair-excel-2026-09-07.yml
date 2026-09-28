@@ -1,4 +1,4 @@
-# Rebuild September after the 2026-09-28 parser and payroll corrections.
+# Rebuild September after the universal road-pull tariff and Bodrov payroll correction.
 name: Repair B2B Excel for September
 
 on:
