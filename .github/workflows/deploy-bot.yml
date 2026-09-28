@@ -119,6 +119,7 @@ jobs:
 
              printf "%s\n" "[Unit]" "Description=MAX webhook receiver for AV Rescue" "After=network-online.target" "Wants=network-online.target" "" "[Service]" "Type=simple" "WorkingDirectory=/opt/vladislaw" "EnvironmentFile=/opt/vladislaw/.env" "ExecStart=/opt/vladislaw/.venv/bin/uvicorn webhook.main:app --host 127.0.0.1 --port 8000" "Restart=always" "RestartSec=5" "TimeoutStopSec=20" "" "[Install]" "WantedBy=multi-user.target" > /etc/systemd/system/max-webhook.service
 
+             .venv/bin/python scripts/restore_latest_valid_excel.py
              systemctl daemon-reload
              systemctl enable max-webhook.service caddy.service
              systemctl restart max-webhook.service

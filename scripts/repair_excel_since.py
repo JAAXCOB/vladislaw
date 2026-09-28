@@ -305,22 +305,29 @@ def main() -> None:
     shutil.copy2(report_path, backup_dir / report_path.name)
     shutil.copy2(payroll_path, backup_dir / payroll_path.name)
 
+    staging_dir = backup_dir / "staging"
+    staging_dir.mkdir()
+    staged_report_path = staging_dir / report_path.name
+    staged_payroll_path = staging_dir / payroll_path.name
+    shutil.copy2(report_path, staged_report_path)
+    shutil.copy2(payroll_path, staged_payroll_path)
+
     since_date = since_dt.date()
     report_sheet = f"{REPORT_MONTH_NAMES[since_date.month]} {str(since_date.year)[2:]}"
     legacy_report_sheet = "Сентябро 26" if report_sheet == "Сентябрь 26" else ""
     report_sheets = {report_sheet, REPORT_MONTH_NAMES[since_date.month]}
     if legacy_report_sheet:
         report_sheets.add(legacy_report_sheet)
-    removed_report = prune_since(report_path, report_sheets, since_date)
-    removed_payroll = prune_since(payroll_path, {REPORT_MONTH_NAMES[since_date.month]}, since_date)
+    removed_report = prune_since(staged_report_path, report_sheets, since_date)
+    removed_payroll = prune_since(staged_payroll_path, {REPORT_MONTH_NAMES[since_date.month]}, since_date)
     removed_legacy_sheet = bool(legacy_report_sheet) and remove_legacy_sheet(
-        report_path, legacy_report_sheet
+        staged_report_path, legacy_report_sheet
     )
 
     for record in records:
-        append_job(report_path, record.job, record.timestamp_ms, record.text)
+        append_job(staged_report_path, record.job, record.timestamp_ms, record.text)
         append_salary_row(
-            payroll_path,
+            staged_payroll_path,
             record.job,
             record.timestamp_ms,
             employee_header(record.sender),
@@ -328,8 +335,15 @@ def main() -> None:
         )
 
     removed_unassigned_payroll = compact_payroll_rows(
-        payroll_path, REPORT_MONTH_NAMES[since_date.month]
+        staged_payroll_path, REPORT_MONTH_NAMES[since_date.month]
     )
+
+    for staged_path in (staged_report_path, staged_payroll_path):
+        check = openpyxl.load_workbook(staged_path, read_only=True, data_only=False)
+        check.close()
+
+    os.replace(staged_report_path, report_path)
+    os.replace(staged_payroll_path, payroll_path)
 
     env_path = Path(".env")
     set_env_value(env_path, "EXCEL_FILE_PATH", str(report_path.resolve()))
