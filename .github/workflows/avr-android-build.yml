@@ -1,6 +1,8 @@
 name: Build AVR Android Release 3.22 / Client 1.0.8
 
 on:
+  push:
+    branches: [ avr-android-build-233 ]
   workflow_dispatch:
 
 jobs:
