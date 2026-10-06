@@ -1,0 +1,142 @@
+diff -ruN origin-source/AVRescueAndroid/app/src/main/AndroidManifest.xml minimal-source/AVRescueAndroid/app/src/main/AndroidManifest.xml
+--- origin-source/AVRescueAndroid/app/src/main/AndroidManifest.xml	2026-09-28 19:31:37.000000000 +0300
++++ minimal-source/AVRescueAndroid/app/src/main/AndroidManifest.xml	2026-10-06 22:33:52.539326438 +0300
+@@ -19,6 +19,7 @@
+     <activity android:name=".VerificationActivity"/>
+     <activity android:name=".RegisterActivity"/>
+     <activity android:name=".OrderDetailActivity"/>
++    <activity android:name=".PaymentActivity"/>
+     <activity android:name=".CreateOrderActivity"/>
+     <activity android:name=".DashboardActivity"/>
+     <service android:name=".DriverLocationService" android:exported="false" android:foregroundServiceType="location"/>
+diff -ruN origin-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java minimal-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java
+--- origin-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java	2026-09-30 11:42:43.000000000 +0300
++++ minimal-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java	2026-10-06 22:33:51.451291558 +0300
+@@ -11,10 +11,10 @@
+  protected void onResume(){super.onResume();if(executor&&!polling){polling=true;handler.postDelayed(poll,3000);}}
+  protected void onPause(){super.onPause();handler.removeCallbacks(poll);handler.removeCallbacks(offerTicker);polling=false;}
+  void build(){root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);ScrollView s=new ScrollView(this);content=Ui.column(this);s.addView(content);root.addView(s,new LinearLayout.LayoutParams(-1,0,1));nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setBackgroundColor(Ui.PANEL);root.addView(nav,new LinearLayout.LayoutParams(-1,-2));setContentView(root);}
+- void header(){content.addView(Ui.brand(this));content.addView(Ui.chip(this,"● Москва • Московская область • межгород",true));}
+- void load(){content.removeAllViews();header();content.addView(Ui.muted(this,"Загрузка…",14));new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->render(r));}catch(Exception e){runOnUiThread(()->error("Нет связи с сервером"));}}).start();}
++ void header(){content.addView(Ui.brand(this));content.addView(Ui.chip(this,"● Москва • Московская область • межгород",true));content.addView(Ui.muted(this,"Версия 3.22",11));}
++ void load(){content.removeAllViews();header();content.addView(Ui.muted(this,"Загрузка…",14));Button retry=Ui.darkButton(this,"Повторить загрузку");retry.setOnClickListener(v->load());content.addView(retry);new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->render(r));}catch(Exception e){runOnUiThread(()->error("Нет связи с сервером. Проверьте интернет и повторите."));}}).start();}
+  void refreshQuiet(){new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->{if(r.optBoolean("ok")){data=r;JSONObject p=r.optJSONObject("profile");role=p==null?"client":p.optString("role","client");executor="executor".equals(role);JSONObject ex=r.optJSONObject("executor");String executorStatus=ex==null?"":ex.optString("status");online=ex!=null&&("online".equals(executorStatus)||"reserved".equals(executorStatus)||"busy".equals(executorStatus));if(executor&&online)startDriverService();setupNav();if("Главная".equals(currentPage))home();else if("Работа на линии".equals(currentPage))linePage();else if("Заказы".equals(currentPage)||"Заявки и заказы".equals(currentPage))orders();else if("Доход и комиссия".equals(currentPage))finance();else if("Профиль".equals(currentPage))profile();}});}catch(Exception ignored){}}).start();}
+- void error(String s){content.removeAllViews();header();content.addView(Ui.muted(this,s,15));}
++ void error(String s){content.removeAllViews();header();content.addView(Ui.muted(this,s,15));Button retry=Ui.button(this,"Повторить");retry.setOnClickListener(v->load());content.addView(retry);}
+  void render(JSONObject r){if(r.optInt("_http")==401){ApiClient.clear(this);startActivity(new Intent(this,LoginActivity.class));finish();return;}if(!r.optBoolean("ok")){error(r.optString("error","Ошибка"));return;}data=r;JSONObject p=r.optJSONObject("profile");role=p==null?"client":p.optString("role","client");executor="executor".equals(role);JSONObject ex=r.optJSONObject("executor");String executorStatus=ex==null?"":ex.optString("status");online=ex!=null&&("online".equals(executorStatus)||"reserved".equals(executorStatus)||"busy".equals(executorStatus));if(executor&&online)startDriverService();setupNav();if(executor&&getIntent().getBooleanExtra("open_line",false))getIntent().removeExtra("open_line");home();if(executor&&!polling){polling=true;handler.postDelayed(poll,3000);}}
+  boolean staff(){return "superadmin".equals(role)||"admin".equals(role)||"dispatcher".equals(role)||"staff".equals(role);}boolean admin(){return "superadmin".equals(role)||"admin".equals(role);}
+  void addNav(String t,Runnable r){Button b=new Button(this);b.setText(t);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setTextSize(10);b.setPadding(1,0,1,0);b.setBackgroundColor(Color.TRANSPARENT);b.setOnClickListener(v->r.run());nav.addView(b,new LinearLayout.LayoutParams(0,Ui.dp(this,54),1));}
+@@ -33,13 +33,13 @@
+  void openOrder(String id){Intent in=new Intent(this,OrderDetailActivity.class);in.putExtra("order_id",id);in.putExtra("role",role);startActivity(in);}
+  void partnerOrdersSection(int limit){
+   JSONArray rows=data.optJSONArray("partner_orders");
+-  if(rows==null||rows.length()==0)return;
+-  java.util.List<JSONObject> sorted=sortedPartnerOrders(rows);
++  JSONObject counts=data.optJSONObject("partner_order_counts");
++  int available=counts==null?0:counts.optInt("available",0),busy=counts==null?0:counts.optInt("busy",0);
++  if((rows==null||rows.length()==0)&&available+busy==0)return;
+   content.addView(Ui.text(this,"Заявки партнёра",19,true));
+-  content.addView(Ui.muted(this,"Сначала ближайшие свободные • без стоимости и комиссии AV Rescue",13));
+-  int count=limit>0?Math.min(limit,sorted.size()):sorted.size();
+-  for(int i=0;i<count;i++)content.addView(partnerOrderCard(sorted.get(i)));
+-  if(limit>0&&sorted.size()>limit){Button all=Ui.darkButton(this,"Показать все заявки партнёра");all.setOnClickListener(v->orders());content.addView(all);}
++  content.addView(Ui.muted(this,"Свободных заявок: "+available+" • занято другими: "+busy,13));
++  content.addView(Ui.muted(this,"Показывается только ваша заявка или одна ближайшая свободная.",12));
++  if(rows!=null&&rows.length()>0)content.addView(partnerOrderCard(rows.optJSONObject(0)));
+  }
+  java.util.List<JSONObject> sortedPartnerOrders(JSONArray rows){
+   java.util.ArrayList<JSONObject> sorted=new java.util.ArrayList<>();for(int i=0;i<rows.length();i++){JSONObject order=rows.optJSONObject(i);if(order!=null)sorted.add(order);}final Location current=freshDriverLocation();
+@@ -51,7 +51,7 @@
+   LinearLayout card=Ui.card(this);boolean mine=order.optBoolean("is_mine");String status=order.optString("status","available");
+   String title=order.optString("service","Эвакуация");String vehicle=order.optString("vehicle","");String plate=order.optString("license_plate","");
+   card.addView(Ui.text(this,title,18,true));
+-  String statusText=mine?"● ВЫ ВЗЯЛИ ЗАЯВКУ":"claimed".equals(status)?"● Взял: "+order.optString("assigned_worker_name","водитель"):"● СВОБОДНА";
++  String statusText=mine?"● ВАША ТЕКУЩАЯ ЗАЯВКА":"● БЛИЖАЙШАЯ СВОБОДНАЯ";
+   card.addView(Ui.chip(this,statusText,mine||"available".equals(status)));
+   card.addView(Ui.muted(this,"Подача: "+valueOr(order.optString("pickup_address",""),"Координаты на карте"),14));
+   Location current=freshDriverLocation();
+diff -ruN origin-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/OrderDetailActivity.java minimal-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/OrderDetailActivity.java
+--- origin-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/OrderDetailActivity.java	2026-09-29 17:31:33.000000000 +0300
++++ minimal-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/OrderDetailActivity.java	2026-10-06 22:37:43.758555016 +0300
+@@ -86,9 +86,11 @@
+   String currentStatus=order.optString("status","");int eta=order.optInt("estimated_arrival_min",0);
+   if(eta>0&&!"done".equals(currentStatus)&&!"completed".equals(currentStatus)&&!"cancelled".equals(currentStatus)){String etaTitle="in_transit".equals(currentStatus)?"До адреса назначения ≈ ":"До адреса подачи ≈ ";summary.addView(Ui.chip(this,etaTitle+eta+" мин",true));}
+   box.addView(summary);
++  String payStatus=order.optString("payment_status","unpaid");boolean payable=price>0&&!"paid".equals(payStatus)&&!"refunded".equals(payStatus)&&!"cancelled".equals(currentStatus);
++  if(payable&&"executor".equals(role)&&order.optString("user_id","").isEmpty()){LinearLayout payment=Ui.card(this);payment.addView(Ui.text(this,"Безналичная оплата",18,true));payment.addView(Ui.muted(this,"Откройте банковский QR и передайте экран клиенту.",13));Button qr=Ui.button(this,"Показать QR для оплаты");qr.setOnClickListener(v->createPayment(qr,true));payment.addView(qr);box.addView(payment);}
+ 
+   String worker=order.optString("assigned_worker_name","");
+-  if(!worker.isEmpty()){
++  if(!"executor".equals(role)&&!worker.isEmpty()){
+     LinearLayout w=Ui.card(this);
+     w.addView(Ui.text(this,"Исполнитель",18,true));
+     w.addView(Ui.text(this,worker,16,true));double wr=order.optDouble("worker_rating",0);if(wr>0)w.addView(Ui.muted(this,"Рейтинг "+wr,14));
+@@ -151,6 +153,7 @@
+   Intent intent=new Intent(Intent.ACTION_VIEW,uri);intent.setPackage("ru.yandex.yandexnavi");
+   try{startActivity(intent);}catch(Exception e){Uri web=(lat!=0&&lng!=0)?Uri.parse("https://yandex.ru/maps/?ll="+lng+"%2C"+lat+"&z=16&pt="+lng+"%2C"+lat+"%2Cpm2rdm"):Uri.parse("https://yandex.ru/maps/?text="+Uri.encode(address));try{startActivity(new Intent(Intent.ACTION_VIEW,web));}catch(Exception ignored){Toast.makeText(this,"Не удалось открыть Яндекс Карты",Toast.LENGTH_SHORT).show();}}
+  }
++ void createPayment(Button button,boolean driverQr){button.setEnabled(false);button.setText("Создаём оплату…");new Thread(()->{try{JSONObject r=ApiClient.post("/api/payment_create.php",new JSONObject().put("order_id",orderId));runOnUiThread(()->{button.setEnabled(true);button.setText("Показать QR для оплаты");if(r.optBoolean("ok")){Intent in=new Intent(this,PaymentActivity.class);in.putExtra("payment_url",r.optString("payment_url"));in.putExtra("driver_qr",driverQr);startActivity(in);}else Toast.makeText(this,r.optString("error","Не удалось создать оплату"),Toast.LENGTH_LONG).show();});}catch(Exception e){runOnUiThread(()->{button.setEnabled(true);button.setText("Показать QR для оплаты");Toast.makeText(this,"Нет связи с AV Rescue",Toast.LENGTH_LONG).show();});}}).start();}
+ 
+ 
+  void autoDispatch(){new Thread(()->{try{JSONObject r=ApiClient.post("/api/mobile_auto_dispatch.php",new JSONObject().put("order_id",orderId));runOnUiThread(()->{Toast.makeText(this,r.optBoolean("assigned")?"Ближайший водитель назначен":"Свободных водителей пока нет",Toast.LENGTH_LONG).show();load();});}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Нет связи",Toast.LENGTH_SHORT).show());}}).start();}
+diff -ruN origin-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java minimal-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java
+--- origin-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java	1970-01-01 02:00:00.000000000 +0200
++++ minimal-source/AVRescueAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java	2026-10-06 22:34:27.804454396 +0300
+@@ -0,0 +1,5 @@
++package ru.avrescue.app;
++import android.app.*;import android.os.*;import android.webkit.*;import android.widget.*;
++public class PaymentActivity extends Activity{
++ public void onCreate(Bundle state){super.onCreate(state);getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);String url=getIntent().getStringExtra("payment_url");boolean qr=getIntent().getBooleanExtra("driver_qr",false);LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);root.addView(Ui.text(this,qr?"QR для оплаты":"Оплата заказа",24,true));root.addView(Ui.muted(this,qr?"Передайте телефон клиенту: он сканирует QR в банковском приложении.":"Защищённая страница банка. AV Rescue не получает данные карты.",13));if(url==null||!url.startsWith("https://")){root.addView(Ui.muted(this,"Платёжная ссылка недоступна.",15));setContentView(root);return;}WebView web=new WebView(this);web.getSettings().setJavaScriptEnabled(true);web.getSettings().setDomStorageEnabled(true);web.setWebViewClient(new WebViewClient(){public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){String next=request.getUrl().toString();if(next.startsWith("https://"))view.loadUrl(next);return true;}});root.addView(web,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);web.loadUrl(url);}
++}
+diff -ruN origin-source/AVRescueClientAndroid/app/src/main/AndroidManifest.xml minimal-source/AVRescueClientAndroid/app/src/main/AndroidManifest.xml
+--- origin-source/AVRescueClientAndroid/app/src/main/AndroidManifest.xml	2026-09-28 19:35:34.000000000 +0300
++++ minimal-source/AVRescueClientAndroid/app/src/main/AndroidManifest.xml	2026-10-06 22:33:53.307351055 +0300
+@@ -14,6 +14,7 @@
+     <activity android:name=".VerificationActivity"/>
+     <activity android:name=".RegisterActivity"/>
+     <activity android:name=".OrderDetailActivity"/>
++    <activity android:name=".PaymentActivity"/>
+     <activity android:name=".CreateOrderActivity"/>
+     <activity android:name=".DashboardActivity"/>
+     <service android:name=".DriverLocationService" android:exported="false" android:foregroundServiceType="location"/>
+diff -ruN origin-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java minimal-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java
+--- origin-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java	2026-09-28 19:36:06.000000000 +0300
++++ minimal-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java	2026-10-06 22:33:52.015309640 +0300
+@@ -13,7 +13,7 @@
+  protected void onPause(){super.onPause();handler.removeCallbacks(poll);handler.removeCallbacks(offerTicker);polling=false;}
+  void build(){root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);ScrollView s=new ScrollView(this);s.setFillViewport(true);content=Ui.column(this);s.addView(content,new ScrollView.LayoutParams(-1,-2));root.addView(s,new LinearLayout.LayoutParams(-1,0,1));nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setGravity(Gravity.CENTER);nav.setBackgroundColor(Ui.PANEL);root.addView(nav,new LinearLayout.LayoutParams(-1,Ui.dp(this,64)));setContentView(root);applySystemInsets();}
+  void applySystemInsets(){root.setOnApplyWindowInsetsListener((view,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=bars.bottom;}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}root.setPadding(0,top,0,0);nav.setPadding(0,0,0,bottom);LinearLayout.LayoutParams params=(LinearLayout.LayoutParams)nav.getLayoutParams();params.height=Ui.dp(this,64)+bottom;nav.setLayoutParams(params);return insets;});root.requestApplyInsets();}
+- void header(){content.addView(Ui.brand(this));content.addView(Ui.chip(this,"● Москва • Московская область • межгород",true));}
++ void header(){content.addView(Ui.brand(this));content.addView(Ui.chip(this,"● Москва • Московская область • межгород",true));content.addView(Ui.muted(this,"Версия 1.0.8",11));}
+  void load(){content.removeAllViews();header();content.addView(Ui.muted(this,"Загрузка…",14));new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->render(r));}catch(Exception e){runOnUiThread(()->error("Нет связи с сервером"));}}).start();}
+  void refreshQuiet(){new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->{if(r.optBoolean("ok")){checkCancelledOrders(r,true);data=r;JSONObject p=r.optJSONObject("profile");role=p==null?"client":p.optString("role","client");executor="executor".equals(role);JSONObject ex=r.optJSONObject("executor");String executorStatus=ex==null?"":ex.optString("status");online=ex!=null&&("online".equals(executorStatus)||"reserved".equals(executorStatus)||"busy".equals(executorStatus));if(executor&&online)startDriverService();setupNav();if("Главная".equals(currentPage))home();else if("Работа на линии".equals(currentPage))linePage();else if("Заказы".equals(currentPage)||"Заявки и заказы".equals(currentPage))orders();else if("Доход и комиссия".equals(currentPage))finance();}});}catch(Exception ignored){}}).start();}
+  void error(String s){content.removeAllViews();header();content.addView(Ui.muted(this,s,15));}
+diff -ruN origin-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/OrderDetailActivity.java minimal-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/OrderDetailActivity.java
+--- origin-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/OrderDetailActivity.java	2026-09-29 17:32:00.000000000 +0300
++++ minimal-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/OrderDetailActivity.java	2026-10-06 22:34:29.496508034 +0300
+@@ -76,6 +76,8 @@
+   String currentStatus=order.optString("status","");int eta=order.optInt("estimated_arrival_min",0);
+   if(eta>0&&!"done".equals(currentStatus)&&!"completed".equals(currentStatus)&&!"cancelled".equals(currentStatus)){String etaTitle="in_transit".equals(currentStatus)?"До адреса назначения ≈ ":"До адреса подачи ≈ ";summary.addView(Ui.chip(this,etaTitle+eta+" мин",true));}
+   box.addView(summary);
++  String payStatus=order.optString("payment_status","unpaid");boolean payable=price>0&&!"paid".equals(payStatus)&&!"refunded".equals(payStatus)&&!"cancelled".equals(currentStatus);
++  if(payable&&"client".equals(role)){LinearLayout payment=Ui.card(this);payment.addView(Ui.text(this,"Оплата картой или СБП",18,true));payment.addView(Ui.muted(this,"Банк откроет защищённую форму. При доступности карту можно сохранить для следующих заказов.",13));Button pay=Ui.button(this,"Оплатить "+Math.round(price)+" ₽");pay.setOnClickListener(v->createPayment(pay));payment.addView(pay);box.addView(payment);}
+ 
+   String worker=order.optString("assigned_worker_name","");
+   if(!worker.isEmpty()){
+@@ -140,6 +142,7 @@
+   Intent intent=new Intent(Intent.ACTION_VIEW,uri);intent.setPackage("ru.yandex.yandexnavi");
+   try{startActivity(intent);}catch(Exception e){Uri web=(lat!=0&&lng!=0)?Uri.parse("https://yandex.ru/maps/?ll="+lng+"%2C"+lat+"&z=16&pt="+lng+"%2C"+lat+"%2Cpm2rdm"):Uri.parse("https://yandex.ru/maps/?text="+Uri.encode(address));try{startActivity(new Intent(Intent.ACTION_VIEW,web));}catch(Exception ignored){Toast.makeText(this,"Не удалось открыть Яндекс Карты",Toast.LENGTH_SHORT).show();}}
+  }
++ void createPayment(Button button){button.setEnabled(false);button.setText("Создаём платёж…");new Thread(()->{try{JSONObject r=ApiClient.post("/api/payment_create.php",new JSONObject().put("order_id",orderId));runOnUiThread(()->{button.setEnabled(true);button.setText("Оплатить картой или СБП");if(r.optBoolean("ok")){Intent in=new Intent(this,PaymentActivity.class);in.putExtra("payment_url",r.optString("payment_url"));startActivity(in);}else Toast.makeText(this,r.optString("error","Не удалось создать платёж"),Toast.LENGTH_LONG).show();});}catch(Exception e){runOnUiThread(()->{button.setEnabled(true);button.setText("Оплатить картой или СБП");Toast.makeText(this,"Нет связи с AV Rescue",Toast.LENGTH_LONG).show();});}}).start();}
+ 
+ 
+  void autoDispatch(){new Thread(()->{try{JSONObject r=ApiClient.post("/api/mobile_auto_dispatch.php",new JSONObject().put("order_id",orderId));runOnUiThread(()->{Toast.makeText(this,r.optBoolean("assigned")?"Ближайший водитель назначен":"Свободных водителей пока нет",Toast.LENGTH_LONG).show();load();});}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Нет связи",Toast.LENGTH_SHORT).show());}}).start();}
+diff -ruN origin-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java minimal-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java
+--- origin-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java	1970-01-01 02:00:00.000000000 +0200
++++ minimal-source/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java	2026-10-06 22:34:28.304470256 +0300
+@@ -0,0 +1,5 @@
++package ru.avrescue.app;
++import android.app.*;import android.os.*;import android.webkit.*;import android.widget.*;
++public class PaymentActivity extends Activity{
++ public void onCreate(Bundle state){super.onCreate(state);getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);String url=getIntent().getStringExtra("payment_url");LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);root.addView(Ui.text(this,"Оплата заказа",24,true));root.addView(Ui.muted(this,"Защищённая страница банка. AV Rescue не получает данные карты.",13));if(url==null||!url.startsWith("https://")){root.addView(Ui.muted(this,"Платёжная ссылка недоступна.",15));setContentView(root);return;}WebView web=new WebView(this);web.getSettings().setJavaScriptEnabled(true);web.getSettings().setDomStorageEnabled(true);web.setWebViewClient(new WebViewClient(){public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){String next=request.getUrl().toString();if(next.startsWith("https://"))view.loadUrl(next);return true;}});root.addView(web,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);web.loadUrl(url);}
++}
