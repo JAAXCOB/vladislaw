@@ -13,7 +13,7 @@
  dependencies {
 --- a/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java
 +++ b/AVRescueAndroid/app/src/main/java/ru/avrescue/app/DashboardActivity.java
-@@ -10,7 +10,7 @@
+@@ -11,7 +11,7 @@
   protected void onResume(){super.onResume();if(executor&&!polling){polling=true;handler.postDelayed(poll,3000);}}
   protected void onPause(){super.onPause();handler.removeCallbacks(poll);handler.removeCallbacks(offerTicker);polling=false;}
   void build(){root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);ScrollView s=new ScrollView(this);content=Ui.column(this);s.addView(content);root.addView(s,new LinearLayout.LayoutParams(-1,0,1));nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setBackgroundColor(Ui.PANEL);root.addView(nav,new LinearLayout.LayoutParams(-1,-2));setContentView(root);}
@@ -22,7 +22,7 @@
   void load(){content.removeAllViews();header();content.addView(Ui.muted(this,"Загрузка…",14));Button retry=Ui.darkButton(this,"Повторить загрузку");retry.setOnClickListener(v->load());content.addView(retry);new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->render(r));}catch(Exception e){runOnUiThread(()->error("Нет связи с сервером. Проверьте интернет и повторите."));}}).start();}
   void refreshQuiet(){new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->{if(r.optBoolean("ok")){data=r;JSONObject p=r.optJSONObject("profile");role=p==null?"client":p.optString("role","client");executor="executor".equals(role);JSONObject ex=r.optJSONObject("executor");String executorStatus=ex==null?"":ex.optString("status");online=ex!=null&&("online".equals(executorStatus)||"reserved".equals(executorStatus)||"busy".equals(executorStatus));if(executor&&online)startDriverService();setupNav();if("Главная".equals(currentPage))home();else if("Работа на линии".equals(currentPage))linePage();else if("Заказы".equals(currentPage)||"Заявки и заказы".equals(currentPage))orders();else if("Доход и комиссия".equals(currentPage))finance();else if("Профиль".equals(currentPage))profile();}});}catch(Exception ignored){}}).start();}
   void error(String s){content.removeAllViews();header();content.addView(Ui.muted(this,s,15));Button retry=Ui.button(this,"Повторить");retry.setOnClickListener(v->load());content.addView(retry);}
-@@ -37,8 +37,12 @@
+@@ -38,8 +38,12 @@
    if((rows==null||rows.length()==0)&&available+busy==0)return;
    content.addView(Ui.text(this,"Заявки партнёра",19,true));
    content.addView(Ui.muted(this,"Свободных заявок: "+available+" • занято другими: "+busy,13));
@@ -37,7 +37,7 @@
   }
   java.util.List<JSONObject> sortedPartnerOrders(JSONArray rows){
    java.util.ArrayList<JSONObject> sorted=new java.util.ArrayList<>();for(int i=0;i<rows.length();i++){JSONObject order=rows.optJSONObject(i);if(order!=null)sorted.add(order);}final Location current=freshDriverLocation();
-@@ -50,11 +54,11 @@
+@@ -51,11 +55,11 @@
    LinearLayout card=Ui.card(this);boolean mine=order.optBoolean("is_mine");String status=order.optString("status","available");
    String title=order.optString("service","Эвакуация");String vehicle=order.optString("vehicle","");String plate=order.optString("license_plate","");
    card.addView(Ui.text(this,title,18,true));
@@ -52,7 +52,7 @@
    else card.addView(Ui.muted(this,"GPS уточняется • расстояние покажет Навигатор",13));
    double lat=order.optDouble("pickup_lat",0),lng=order.optDouble("pickup_lng",0);String address=order.optString("pickup_address","");
    if((lat!=0&&lng!=0)||!address.isEmpty()){Button map=Ui.darkButton(this,"Маршрут к подаче");map.setOnClickListener(v->openYandexMap(lat,lng,address));card.addView(map);}
-@@ -69,7 +73,7 @@
+@@ -70,7 +74,7 @@
    Button show=Ui.darkButton(this,"Открыть заявку");show.setOnClickListener(v->{boolean opening=details.getVisibility()!=android.view.View.VISIBLE;details.setVisibility(opening?android.view.View.VISIBLE:android.view.View.GONE);show.setText(opening?"Скрыть детали":"Открыть заявку");});card.addView(show);card.addView(details);
    String id=order.optString("id","");
    if(mine){Button release=Ui.darkButton(this,"Вернуть в общий список");release.setOnClickListener(v->partnerAction(id,"release",release));card.addView(release);}
