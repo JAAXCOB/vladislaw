@@ -1,4 +1,4 @@
-name: Build AVR Android Release 3.22 / Client 1.0.8
+name: Build AVR Android Release 3.23 / Client 1.0.8
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
         run: |
           base64 -d ci/avr-android-source.tgz.b64 > /tmp/avr-android.tgz
           tar -xzf /tmp/avr-android.tgz
-          patch -p1 < ci/android-3.22-privacy-payments.patch
+          patch -p1 < ci/android-3.23-feed.patch
       - name: Install Android SDK
         run: |
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)
@@ -63,11 +63,11 @@ jobs:
       - name: Collect unsigned release APKs and signing tool
         run: |
           mkdir artifacts
-          cp AVRescueAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AVR_Driver_3.22_unsigned.apk
+          cp AVRescueAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AVR_Driver_3.23_unsigned.apk
           cp AVRescueClientAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AV_Rescue_Client_1.0.8_unsigned.apk
           cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" artifacts/apksigner.jar
       - uses: actions/upload-artifact@v4
         with:
-          name: AV-Rescue-Android-Release-3.22-Client-1.0.8
+          name: AV-Rescue-Android-Release-3.23-Client-1.0.8
           path: artifacts/*
           retention-days: 30
