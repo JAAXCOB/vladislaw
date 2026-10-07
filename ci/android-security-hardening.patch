@@ -1,0 +1,96 @@
+--- a/AVRescueAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java
++++ b/AVRescueAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java
+@@ -1,5 +1,33 @@
+ package ru.avrescue.app;
+-import android.app.*;import android.os.*;import android.webkit.*;import android.widget.*;
+-public class PaymentActivity extends Activity{
+- public void onCreate(Bundle state){super.onCreate(state);getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);String url=getIntent().getStringExtra("payment_url");boolean qr=getIntent().getBooleanExtra("driver_qr",false);LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);root.addView(Ui.text(this,qr?"QR для оплаты":"Оплата заказа",24,true));root.addView(Ui.muted(this,qr?"Передайте телефон клиенту: он сканирует QR в банковском приложении.":"Защищённая страница банка. AV Rescue не получает данные карты.",13));if(url==null||!url.startsWith("https://")){root.addView(Ui.muted(this,"Платёжная ссылка недоступна.",15));setContentView(root);return;}WebView web=new WebView(this);web.getSettings().setJavaScriptEnabled(true);web.getSettings().setDomStorageEnabled(true);web.setWebViewClient(new WebViewClient(){public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){String next=request.getUrl().toString();if(next.startsWith("https://"))view.loadUrl(next);return true;}});root.addView(web,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);web.loadUrl(url);}
++
++import android.app.Activity;
++import android.net.Uri;
++import android.os.Build;
++import android.os.Bundle;
++import android.view.WindowManager;
++import android.webkit.WebResourceRequest;
++import android.webkit.WebSettings;
++import android.webkit.WebView;
++import android.webkit.WebViewClient;
++import android.widget.LinearLayout;
++
++public class PaymentActivity extends Activity {
++ private static boolean trustedPaymentUrl(String value){
++  if(value==null)return false;
++  Uri uri=Uri.parse(value);String host=uri.getHost();
++  if(!"https".equalsIgnoreCase(uri.getScheme())||host==null)return false;
++  host=host.toLowerCase(java.util.Locale.ROOT);
++  return host.equals("av-rescue.ru")||host.endsWith(".av-rescue.ru")||host.equals("alfabank.ru")||host.endsWith(".alfabank.ru")||host.equals("rbsuat.com")||host.endsWith(".rbsuat.com")||host.equals("payment2way.com")||host.endsWith(".payment2way.com");
++ }
++ public void onCreate(Bundle state){
++  super.onCreate(state);getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
++  String url=getIntent().getStringExtra("payment_url");boolean qr=getIntent().getBooleanExtra("driver_qr",false);
++  LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);
++  root.addView(Ui.text(this,qr?"QR для оплаты":"Оплата заказа",24,true));
++  root.addView(Ui.muted(this,qr?"Передайте телефон клиенту: он сканирует QR в банковском приложении.":"Защищённая страница банка. AV Rescue не получает данные карты.",13));
++  if(!trustedPaymentUrl(url)){root.addView(Ui.muted(this,"Платёжная ссылка заблокирована проверкой безопасности.",15));setContentView(root);return;}
++  WebView web=new WebView(this);WebSettings settings=web.getSettings();settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(true);settings.setAllowFileAccess(false);settings.setAllowContentAccess(false);settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);if(Build.VERSION.SDK_INT>=26)settings.setSafeBrowsingEnabled(true);
++  web.setWebViewClient(new WebViewClient(){public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){String next=request.getUrl().toString();if(next.startsWith("https://")){view.loadUrl(next);}return true;}});
++  root.addView(web,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);web.loadUrl(url);
++ }
+ }
+--- a/AVRescueAndroid/gradle/wrapper/gradle-wrapper.properties
++++ b/AVRescueAndroid/gradle/wrapper/gradle-wrapper.properties
+@@ -1,6 +1,7 @@
+ distributionBase=GRADLE_USER_HOME
+ distributionPath=wrapper/dists
+ distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip
++distributionSha256Sum=d725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab
+ networkTimeout=10000
+ validateDistributionUrl=true
+ zipStoreBase=GRADLE_USER_HOME
+--- a/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java
++++ b/AVRescueClientAndroid/app/src/main/java/ru/avrescue/app/PaymentActivity.java
+@@ -1,5 +1,31 @@
+ package ru.avrescue.app;
+-import android.app.*;import android.os.*;import android.webkit.*;import android.widget.*;
+-public class PaymentActivity extends Activity{
+- public void onCreate(Bundle state){super.onCreate(state);getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);String url=getIntent().getStringExtra("payment_url");LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);root.addView(Ui.text(this,"Оплата заказа",24,true));root.addView(Ui.muted(this,"Защищённая страница банка. AV Rescue не получает данные карты.",13));if(url==null||!url.startsWith("https://")){root.addView(Ui.muted(this,"Платёжная ссылка недоступна.",15));setContentView(root);return;}WebView web=new WebView(this);web.getSettings().setJavaScriptEnabled(true);web.getSettings().setDomStorageEnabled(true);web.setWebViewClient(new WebViewClient(){public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){String next=request.getUrl().toString();if(next.startsWith("https://"))view.loadUrl(next);return true;}});root.addView(web,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);web.loadUrl(url);}
++
++import android.app.Activity;
++import android.net.Uri;
++import android.os.Build;
++import android.os.Bundle;
++import android.view.WindowManager;
++import android.webkit.WebResourceRequest;
++import android.webkit.WebSettings;
++import android.webkit.WebView;
++import android.webkit.WebViewClient;
++import android.widget.LinearLayout;
++
++public class PaymentActivity extends Activity {
++ private static boolean trustedPaymentUrl(String value){
++  if(value==null)return false;
++  Uri uri=Uri.parse(value);String host=uri.getHost();
++  if(!"https".equalsIgnoreCase(uri.getScheme())||host==null)return false;
++  host=host.toLowerCase(java.util.Locale.ROOT);
++  return host.equals("av-rescue.ru")||host.endsWith(".av-rescue.ru")||host.equals("alfabank.ru")||host.endsWith(".alfabank.ru")||host.equals("rbsuat.com")||host.endsWith(".rbsuat.com")||host.equals("payment2way.com")||host.endsWith(".payment2way.com");
++ }
++ public void onCreate(Bundle state){
++  super.onCreate(state);getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
++  String url=getIntent().getStringExtra("payment_url");LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);
++  root.addView(Ui.text(this,"Оплата заказа",24,true));root.addView(Ui.muted(this,"Защищённая страница банка. AV Rescue не получает данные карты.",13));
++  if(!trustedPaymentUrl(url)){root.addView(Ui.muted(this,"Платёжная ссылка заблокирована проверкой безопасности.",15));setContentView(root);return;}
++  WebView web=new WebView(this);WebSettings settings=web.getSettings();settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(true);settings.setAllowFileAccess(false);settings.setAllowContentAccess(false);settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);if(Build.VERSION.SDK_INT>=26)settings.setSafeBrowsingEnabled(true);
++  web.setWebViewClient(new WebViewClient(){public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){String next=request.getUrl().toString();if(next.startsWith("https://")){view.loadUrl(next);}return true;}});
++  root.addView(web,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);web.loadUrl(url);
++ }
+ }
+--- a/AVRescueClientAndroid/gradle/wrapper/gradle-wrapper.properties
++++ b/AVRescueClientAndroid/gradle/wrapper/gradle-wrapper.properties
+@@ -1,6 +1,7 @@
+ distributionBase=GRADLE_USER_HOME
+ distributionPath=wrapper/dists
+ distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip
++distributionSha256Sum=d725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab
+ networkTimeout=10000
+ validateDistributionUrl=true
+ zipStoreBase=GRADLE_USER_HOME
