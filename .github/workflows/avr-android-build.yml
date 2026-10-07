@@ -18,6 +18,7 @@ jobs:
         run: |
           base64 -d ci/avr-android-source.tgz.b64 > /tmp/avr-android.tgz
           tar -xzf /tmp/avr-android.tgz
+          patch -p1 < ci/android-3.22-privacy-payments.patch
           patch -p1 < ci/android-3.23-feed.patch
       - name: Install Android SDK
         run: |
