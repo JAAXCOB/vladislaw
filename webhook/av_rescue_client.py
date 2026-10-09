@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from webhook.config import settings
+from webhook.max_client import send_message
 from webhook.reporting_rules import normalize_plate
 from webhook.schema import ExtractedJob
 from webhook.storage import atomic_write_json, file_lock
@@ -23,6 +24,37 @@ from webhook.storage import atomic_write_json, file_lock
 log = logging.getLogger("max_webhook.av_rescue")
 MAX_DELIVERY_ATTEMPTS = 10
 MAX_RETRY_DELAY_SECONDS = 3600
+
+
+def _send_order_ack(response_data: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Confirm a newly persisted order in the same MAX chat."""
+    if response_data.get("reply_required") is not True:
+        return
+
+    chat_id = str(
+        response_data.get("reply_chat_id") or payload.get("source_chat_id") or ""
+    ).strip()
+    text = str(response_data.get("reply_text") or "").strip()
+    if not chat_id or not text:
+        log.error(
+            "AV Rescue requested an acknowledgement without chat/text | source_id=%s",
+            payload.get("source_id"),
+        )
+        return
+
+    reply_to_mid = str(payload.get("source_message_id") or "").strip() or None
+    send_message(
+        chat_id,
+        text,
+        settings.max_bot_token,
+        settings.MAX_API_BASE,
+        reply_to_mid=reply_to_mid,
+    )
+    log.info(
+        "New order acknowledged in MAX | source_id=%s | chat_id=%s",
+        payload.get("source_id"),
+        chat_id,
+    )
 
 
 def _split_destination_field(original_text: str, fallback: str | None) -> tuple[str | None, str | None]:
@@ -116,8 +148,11 @@ def _post(payload: dict[str, Any]) -> bool:
                 headers={"X-AVR-Partner-Key": settings.av_rescue_api_key},
                 json=payload,
             )
-        if response.status_code == 200 and response.json().get("ok") is True:
+        response_data = response.json()
+        if response.status_code == 200 and response_data.get("ok") is True:
             log.info("AV Rescue sync delivered | event=%s", payload.get("event", "unknown"))
+            if payload.get("event") == "upsert":
+                _send_order_ack(response_data, payload)
             return True
         log.error("AV Rescue sync failed: HTTP %s", response.status_code)
     except Exception:
