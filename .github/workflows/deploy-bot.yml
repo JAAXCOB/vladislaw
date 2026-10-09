@@ -74,7 +74,11 @@ jobs:
              fi
 
              export DEBIAN_FRONTEND=noninteractive
-             apt-get update -qq
+             if ! apt-get update -qq; then
+               echo "Package index update failed; disabling the stale Caddy Cloudsmith source"
+               rm -f /etc/apt/sources.list.d/caddy-stable.list
+               apt-get update -qq
+             fi
              apt-get install -y -qq python3-venv python3-pip curl
              python3 -m venv .venv
              .venv/bin/python -m pip install --upgrade pip
