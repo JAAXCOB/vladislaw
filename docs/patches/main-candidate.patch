@@ -1,0 +1,1010 @@
+diff --git a/.env.example b/.env.example
+index 2cefbd6..bb9db79 100644
+--- a/.env.example
++++ b/.env.example
+@@ -13,0 +14,6 @@ LOG_LEVEL=INFO
++
++# Keep false in production; raw updates may contain personal data.
++LOG_RAW_UPDATES=false
++
++# Optional B2B chat ID for read-only diagnostics; this does not enable sending.
++MAX_B2B_CHAT_ID=
+diff --git a/AVR_WORK_PLAN.md b/AVR_WORK_PLAN.md
+index 0a231de..90c48cf 100644
+--- a/AVR_WORK_PLAN.md
++++ b/AVR_WORK_PLAN.md
+@@ -227,0 +228,27 @@
++
++## Дополнение по ИИ и MAX на 10 октября 2026
++
++Владелец подтвердил архитектуру по результатам аудита и поручил продолжить
++отладку, улучшить удобство сайта и восстановить подтверждения заявок в B2B MAX.
++Ранее согласованные задачи и правила сохраняются.
++
++1. 🟡 Найдена существующая рабочая ветка Excel-бота
++   `claude/max-excel-evacuation-automation-zxuvb4`, отдельная от main.
++2. 🟡 Подготовлены локальные исправления очереди подтверждений MAX и раздельного
++   названия сервиса/адреса назначения. На сервере не установлены.
++3. ⏳ Сверить ответы `partner_order_sync.php`, включая `reply_required`, и код
++   `partner_order_action.php` на сервере сайта; затем выполнить тест на стенде.
++4. ⏳ Убрать автоматический production-деплой из обычного push до публикации
++   исправлений ветки бота; сохранить отдельную проверяемую процедуру обновления.
++5. ⏳ Реализовать удобную операционную панель по согласованным сценариям после
++   получения полного действующего комплекта сайта.
++6. 🟡 Koda: владелец указал плагин с этим названием; два поиска в доступном
++   каталоге результата не дали. Подключение не выполнено.
++
++Состояние, найденные источники и порядок продолжения:
++[AVR_WORK_STATE.md](docs/AVR_WORK_STATE.md).
++
++
++### 10.10.2026 — дополнение после аудита cf4667b
++
++Локально подготовлены безопасная сверка кода, isolated restore drill, external-secret bootstrap template/rotation plan, fail-closed MAX, financial guard и SQLite pilot. План: docs/AVR_SAFE_IMPLEMENTATION_2026-10-10.md. Проверки: main51 / Excel63 / PHP25 + lint7. Следующий этап — защищённое read-only получение серверных исходников и консистентного backup; никакого автоматического deploy/push до стенда.
+diff --git a/README.md b/README.md
+index 76eea81..a0d8b23 100644
+--- a/README.md
++++ b/README.md
+@@ -6,0 +7,9 @@ Automated pipeline: MAX group chat → AI extraction → Excel/database.
++The production MAX/Excel implementation is on the existing branch
++`claude/max-excel-evacuation-automation-zxuvb4`; `main` also contains website
++patches and Android source archives. Do not deploy `main` over the Excel bot.
++See [the development checkpoint](docs/AVR_WORK_STATE.md) for sources, pending
++changes and the MAX acknowledgement investigation.
++
++Normal webhook logs exclude message text. Set `LOG_RAW_UPDATES=true` only for
++isolated diagnostics with synthetic messages; raw updates contain personal data.
++
+@@ -115,0 +125,10 @@ Check your server logs — you should see the full JSON of every group message.
++
++## Read-only MAX diagnostics
++
++Run `python -m scripts.diagnose_max --chat-id <B2B_CHAT_ID>` in an environment
++with the correct bot's `MAX_BOT_TOKEN`. The chat ID can instead be supplied as
++`MAX_B2B_CHAT_ID`; `--expected-bot-id` checks which bot the token identifies.
++The command only reads bot identity, chat membership and webhook subscriptions.
++It never sends messages, changes subscriptions or prints credentials, chat
++names or webhook URLs. Empty subscriptions may be normal for long polling;
++successful GET checks do not prove outbound message delivery.
+diff --git a/site/patches/9.0/alfa_acquiring.php b/site/patches/9.0/alfa_acquiring.php
+index e011334..d2b4a80 100644
+--- a/site/patches/9.0/alfa_acquiring.php
++++ b/site/patches/9.0/alfa_acquiring.php
+@@ -42,2 +42,7 @@ function av_alfa_sync_order(&$order){
+- $paidAmount=(float)($data['paymentAmountInfo']['paymentState']??0);if(isset($data['amount']))$paidAmount=(float)$data['amount'];elseif(isset($data['Amount']))$paidAmount=(float)$data['Amount'];
+- if($name==='paid'){$order['paid_at']=$order['paid_at']??date('c');$order['paid_amount']=round($paidAmount/100,2);if(in_array($order['status']??'',array('done','completed'),true))av_post_order_finance($order);}
++ unset($order['payment_verification']);
++ if($name==='paid'){
++  $proof=av_alfa_verification($order,$data);
++  if(!$proof){$order['payment_status']='verification_required';return array('ok'=>false,'error'=>'Не подтверждены сумма, валюта или идентификатор платежа');}
++  $order['payment_verification']=$proof;$order['paid_at']=$order['paid_at']??date('c');$order['paid_amount']=$proof['amount_minor']/100;
++  if(in_array($order['status']??'',array('done','completed'),true))av_post_order_finance($order);
++ }
+diff --git a/site/patches/9.0/api/settle_order.php b/site/patches/9.0/api/settle_order.php
+index e2f1234..c7896cb 100644
+--- a/site/patches/9.0/api/settle_order.php
++++ b/site/patches/9.0/api/settle_order.php
+@@ -3,0 +4 @@ av_require_staff_api();
++if($_SERVER['REQUEST_METHOD']!=='POST')av_json_response(array('ok'=>false,'error'=>'Метод не поддерживается'),405);
+@@ -10,3 +11,2 @@ $wid=$o['assigned_worker_id']??'';$worker=$wid?av_worker_by_id($wid):null;$f=av_
+-$orders[$idx]['final_price']=$f['gross'];$orders[$idx]['commission_rate']=$f['commission_rate'];$orders[$idx]['payout_rate']=$f['payout_rate'];$orders[$idx]['commission_amount']=$f['commission'];$orders[$idx]['worker_payout']=$f['driver_net'];$orders[$idx]['loyalty_level']=$f['loyalty_level'];$orders[$idx]['loyalty_name']=$f['loyalty_name'];
+-if(!empty($f['excluded']))$orders[$idx]['finance_posted']='b2b_separate';
+-elseif($wid){$cash=($o['payment_method']??'cash')==='cash';$amount=$cash?-$f['commission']:$f['driver_net'];$orders[$idx]['ledger_type']=$cash?'commission_debit':'driver_credit';$orders[$idx]['ledger_amount']=$amount;av_finance_record_order($orders[$idx],$f);av_ledger_add_once($wid,$id,$orders[$idx]['ledger_type'],$amount,$cash?'Комиссия за наличный заказ':'Оплата картой за заказ');$orders[$idx]['finance_posted']=true;}
++$posted=av_post_order_finance($orders[$idx],$worker);
++if(!$posted&&empty($f['excluded']))av_json_response(array('ok'=>false,'error'=>'Расчёт не выполнен: проверьте оплату, исполнителя и запись финансов'),409);
+diff --git a/site/patches/9.0/api/update_order.php b/site/patches/9.0/api/update_order.php
+index 2f25976..adc2823 100644
+--- a/site/patches/9.0/api/update_order.php
++++ b/site/patches/9.0/api/update_order.php
+@@ -19,4 +19,2 @@ foreach($orders as $k=>$o){
+-  $orders[$k]['completed_at']=date('c');$f=av_order_financials($orders[$k],$worker);
+-  $orders[$k]['final_price']=$f['gross'];$orders[$k]['commission_rate']=$f['commission_rate'];$orders[$k]['payout_rate']=$f['payout_rate'];$orders[$k]['commission_amount']=$f['commission'];$orders[$k]['worker_payout']=$f['driver_net'];$orders[$k]['loyalty_level']=$f['loyalty_level'];$orders[$k]['loyalty_name']=$f['loyalty_name'];
+-  if(!empty($f['excluded']))$orders[$k]['finance_posted']='b2b_separate';
+-  elseif($workerId){$cash=($orders[$k]['payment_method']??'cash')==='cash';$orders[$k]['ledger_type']=$cash?'commission_debit':'driver_credit';$orders[$k]['ledger_amount']=$cash?-$f['commission']:$f['driver_net'];av_finance_record_order($orders[$k],$f);av_ledger_add_once($workerId,$id,$orders[$k]['ledger_type'],$orders[$k]['ledger_amount'],$cash?'Комиссия за наличный заказ':'Оплата картой за заказ');$orders[$k]['finance_posted']=true;}
++  $orders[$k]['completed_at']=date('c');av_post_order_finance($orders[$k],$worker);
++  if(($orders[$k]['finance_posted']??'')==='storage_error')av_json_response(array('ok'=>false,'error'=>'Ошибка финансовой записи; требуется сверка'),500);
+diff --git a/site/patches/9.0/config.php b/site/patches/9.0/config.php
+index 0f0fd0c..c419b93 100644
+--- a/site/patches/9.0/config.php
++++ b/site/patches/9.0/config.php
+@@ -409,2 +409,2 @@ function av_ledger_add_once($workerId,$orderId,$type,$amount,$note=''){
+- foreach(av_ledger() as $row)if((string)($row['worker_id']??'')===(string)$workerId&&(string)($row['order_id']??'')===(string)$orderId&&(string)($row['type']??'')===(string)$type&&($row['status']??'posted')==='posted')return false;
+- av_ledger_add($workerId,$orderId,$type,$amount,$note);return true;
++ foreach(av_ledger() as $row)if((string)($row['worker_id']??'')===(string)$workerId&&(string)($row['order_id']??'')===(string)$orderId&&(string)($row['type']??'')===(string)$type&&($row['status']??'posted')==='posted')return round((float)($row['amount']??0),2)===round((float)$amount,2);
++ return av_ledger_add($workerId,$orderId,$type,$amount,$note);
+@@ -487 +487 @@ function av_finance_record_order($order,$financials){
+- $rows=av_read_finance();foreach($rows as $row)if((string)($row['order_id']??'')===$orderId)return false;
++ $rows=av_read_finance();foreach($rows as $row)if((string)($row['order_id']??'')===$orderId)return ($row['worker_id']??'')===($order['assigned_worker_id']??'')&&round((float)($row['price']??0),2)===round((float)$financials['gross'],2)&&round((float)($row['worker_payout']??0),2)===round((float)$financials['driver_net'],2)&&round((float)($row['commission_amount']??0),2)===round((float)$financials['commission'],2);
+@@ -490,0 +491 @@ function av_finance_record_order($order,$financials){
++require_once __DIR__.'/finance_payment_guard.php';
+@@ -494,2 +495,2 @@ function av_post_order_finance(&$order,$worker=null){
+- if(!empty($f['excluded'])){$order['finance_posted']='b2b_separate';return false;}$cash=($order['payment_method']??'cash')==='cash';if(!$cash&&($order['payment_status']??'unpaid')!=='paid'){$order['finance_posted']='awaiting_payment';return false;}
+- $type=$cash?'commission_debit':'driver_credit';$amount=$cash?-$f['commission']:$f['driver_net'];$order['ledger_type']=$type;$order['ledger_amount']=$amount;av_finance_record_order($order,$f);av_ledger_add_once($worker['id'],$order['id']??'',$type,$amount,$cash?'Комиссия за наличный заказ':'Доход за безналичный заказ');$order['finance_posted']=true;$order['finance_posted_at']=date('c');return true;
++ if(!empty($f['excluded'])){$order['finance_posted']='b2b_separate';return false;}$cash=($order['payment_method']??'cash')==='cash';if(!$cash&&!av_verified_cashless_payment($order)){$order['finance_posted']='awaiting_payment';return false;}
++ $type=$cash?'commission_debit':'driver_credit';$amount=$cash?-$f['commission']:$f['driver_net'];$order['ledger_type']=$type;$order['ledger_amount']=$amount;if(!av_finance_record_order($order,$f)||!av_ledger_add_once($worker['id'],$order['id']??'',$type,$amount,$cash?'Комиссия за наличный заказ':'Доход за безналичный заказ')){$order['finance_posted']='storage_error';return false;}$order['finance_posted']=true;$order['finance_posted_at']=date('c');return true;
+diff --git a/tests/test_webhook.py b/tests/test_webhook.py
+index d1eed10..7628824 100644
+--- a/tests/test_webhook.py
++++ b/tests/test_webhook.py
+@@ -173,0 +174,30 @@ def test_unknown_update_type_does_not_crash(client: TestClient) -> None:
++
++
++def test_empty_runtime_secret_fails_closed(client, monkeypatch):
++    from webhook.config import settings
++    monkeypatch.setattr(settings, "max_webhook_secret", "")
++    assert client.post("/webhook", json=BOT_STARTED_PAYLOAD).status_code == 403
++
++
++def test_non_ascii_secret_header_is_forbidden_not_server_error(client):
++    response = client.post(
++        "/webhook", json=BOT_STARTED_PAYLOAD,
++        headers={b"X-Max-Bot-Api-Secret": "неверный".encode("utf-8")},
++    )
++    assert response.status_code == 403
++
++
++def test_default_logs_do_not_contain_message_or_sender(client, caplog, monkeypatch):
++    from webhook.config import settings
++    monkeypatch.setattr(settings, "log_raw_updates", False)
++    with caplog.at_level("INFO"):
++        assert post_webhook(client, MESSAGE_CREATED_PAYLOAD).status_code == 200
++    assert MESSAGE_CREATED_PAYLOAD["message"]["body"]["text"] not in caplog.text
++    assert "Иван" not in caplog.text
++
++
++def test_validation_warning_does_not_include_invalid_input(client, caplog):
++    with caplog.at_level("WARNING"):
++        response = post_webhook(client, {"update_type": "PRIVATE_INPUT", "timestamp": 1})
++    assert response.status_code == 200
++    assert "PRIVATE_INPUT" not in caplog.text
+diff --git a/webhook/config.py b/webhook/config.py
+index a933f24..ff65e4d 100644
+--- a/webhook/config.py
++++ b/webhook/config.py
+@@ -0,0 +1 @@
++from pydantic import Field, field_validator
+@@ -5 +6,4 @@ class Settings(BaseSettings):
+-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
++    model_config = SettingsConfigDict(
++        env_file=".env", env_file_encoding="utf-8", hide_input_in_errors=True,
++        extra="ignore",
++    )
+@@ -7,2 +11,4 @@ class Settings(BaseSettings):
+-    max_bot_token: str
+-    max_webhook_secret: str
++    max_bot_token: str = Field(min_length=1, repr=False)
++    max_webhook_secret: str = Field(
++        min_length=5, max_length=256, pattern=r"^[A-Za-z0-9-]+$", repr=False,
++    )
+@@ -10,0 +17 @@ class Settings(BaseSettings):
++    log_raw_updates: bool = False
+@@ -13,0 +21,7 @@ class Settings(BaseSettings):
++    @field_validator("max_bot_token")
++    @classmethod
++    def token_must_not_be_blank(cls, value: str) -> str:
++        if not value.strip():
++            raise ValueError("MAX_BOT_TOKEN must not be blank")
++        return value
++
+diff --git a/webhook/main.py b/webhook/main.py
+index 232f7ca..3e265d1 100644
+--- a/webhook/main.py
++++ b/webhook/main.py
+@@ -4,3 +4,2 @@ Phase 1 PoC — MAX webhook receiver.
+-Goal: prove that MAX delivers group messages to our endpoint and log
+-the raw payload so we can inspect the real JSON structure before
+-building any business logic.
++Goal: prove that MAX delivers group messages to our endpoint. Raw payload
++logging is opt-in for isolated diagnostics; normal logs exclude message text.
+@@ -56 +55,8 @@ async def webhook(
+-    if not secrets.compare_digest(x_max_bot_api_secret, settings.max_webhook_secret):
++    if (
++        not settings.max_webhook_secret
++        or not x_max_bot_api_secret
++        or not secrets.compare_digest(
++            x_max_bot_api_secret.encode("utf-8"),
++            settings.max_webhook_secret.encode("utf-8"),
++        )
++    ):
+@@ -65 +71 @@ async def webhook(
+-        log.error("Received non-JSON body: %s", raw_body[:200])
++        log.error("Received non-JSON body")
+@@ -68,2 +74,3 @@ async def webhook(
+-    # --- 3. Log full raw payload (Phase 1 goal) --------------------------------
+-    log.info("=== RAW MAX UPDATE ===\n%s", json.dumps(raw_json, ensure_ascii=False, indent=2))
++    # --- 3. Raw logs only for explicitly enabled, isolated diagnostics --------
++    if settings.log_raw_updates:
++        log.info("=== RAW MAX UPDATE ===\n%s", json.dumps(raw_json, ensure_ascii=False, indent=2))
+@@ -77 +84 @@ async def webhook(
+-        log.warning("Update parsed with validation issues: %s", exc)
++        log.warning("Update parsed with validation issues: count=%s", exc.error_count())
+@@ -83,4 +89,0 @@ async def webhook(
+-        sender_name = msg.sender.display_name if msg.sender else "unknown"
+-        sender_id = msg.sender.user_id if msg.sender else None
+-        chat_id = msg.recipient.chat_id if msg.recipient else None
+-        text = msg.body.text if msg.body else None
+@@ -90 +93 @@ async def webhook(
+-            "MESSAGE_CREATED | mid=%s | chat_id=%s | from=%s (id=%s) | text=%r",
++            "MESSAGE_CREATED | mid=%s",
+@@ -92,4 +94,0 @@ async def webhook(
+-            chat_id,
+-            sender_name,
+-            sender_id,
+-            text,
+diff --git a/deployment/schema/transactional_storage_pilot.sql b/deployment/schema/transactional_storage_pilot.sql
+new file mode 100644
+index 0000000..71c75a0
+--- /dev/null
++++ b/deployment/schema/transactional_storage_pilot.sql
+@@ -0,0 +1,44 @@
++-- Isolated SQLite pilot only; NOT an automatic production migration.
++PRAGMA foreign_keys = ON;
++CREATE TABLE workers (id TEXT PRIMARY KEY, status TEXT NOT NULL);
++CREATE TABLE orders (
++ id TEXT PRIMARY KEY, status TEXT NOT NULL, source TEXT NOT NULL,
++ worker_id TEXT REFERENCES workers(id), version INTEGER NOT NULL DEFAULT 0 CHECK(version >= 0),
++ amount_minor INTEGER NOT NULL CHECK(amount_minor > 0), currency TEXT NOT NULL CHECK(currency = '643')
++);
++CREATE UNIQUE INDEX one_active_order_per_worker ON orders(worker_id)
++ WHERE worker_id IS NOT NULL AND status IN ('assigned','enroute','arrived','in_transit');
++CREATE TABLE payment_verifications (
++ id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id),
++ provider TEXT NOT NULL, provider_payment_id TEXT NOT NULL,
++ amount_minor INTEGER NOT NULL CHECK(amount_minor > 0), currency TEXT NOT NULL CHECK(currency = '643'),
++ status TEXT NOT NULL CHECK(status IN ('captured','refunded','reversed')),
++ verified_at TEXT NOT NULL, UNIQUE(provider,provider_payment_id)
++);
++CREATE TABLE ledger (
++ id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id), worker_id TEXT NOT NULL REFERENCES workers(id),
++ type TEXT NOT NULL CHECK(type IN ('commission_debit','driver_credit','reversal')),
++ amount_minor INTEGER NOT NULL CHECK(amount_minor != 0),
++ payment_verification_id TEXT REFERENCES payment_verifications(id),
++ idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
++ UNIQUE(order_id,worker_id,type)
++);
++CREATE TRIGGER validate_driver_credit BEFORE INSERT ON ledger WHEN NEW.type='driver_credit'
++BEGIN
++ SELECT CASE WHEN NOT EXISTS (
++  SELECT 1 FROM payment_verifications p JOIN orders o ON o.id=p.order_id
++  WHERE p.id=NEW.payment_verification_id AND p.order_id=NEW.order_id
++   AND p.status='captured' AND p.amount_minor=o.amount_minor AND p.currency=o.currency
++   AND o.status IN ('done','completed') AND o.source!='max_partner'
++   AND o.worker_id=NEW.worker_id AND NEW.amount_minor>0 AND NEW.amount_minor<=p.amount_minor
++ ) THEN RAISE(ABORT,'Unverified or mismatched payment') END;
++END;
++CREATE TABLE outbox (
++ id TEXT PRIMARY KEY, event_key TEXT NOT NULL UNIQUE, order_id TEXT NOT NULL REFERENCES orders(id),
++ event_type TEXT NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
++ attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT, created_at TEXT NOT NULL
++);
++CREATE TABLE audit_events (
++ id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, action TEXT NOT NULL,
++ entity_id TEXT NOT NULL, correlation_id TEXT NOT NULL, created_at TEXT NOT NULL
++);
+diff --git a/deployment/templates/secrets_bootstrap.php b/deployment/templates/secrets_bootstrap.php
+new file mode 100644
+index 0000000..cb35bc8
+--- /dev/null
++++ b/deployment/templates/secrets_bootstrap.php
+@@ -0,0 +1,12 @@
++<?php
++/* Staging template. Configure env securely before replacing legacy literals. */
++function avr_required_secret($name,$hash=false){
++ $value=getenv($name);
++ if(!is_string($value)||($hash?!preg_match('/^[a-f0-9]{64}$/D',$value):strlen($value)<32)){
++  throw new RuntimeException('Required external credential is missing or invalid');
++ }
++ return $value;
++}
++define('AV_DISPATCHER_KEY',avr_required_secret('AV_DISPATCHER_KEY'));
++define('AV_DISPATCHER_PASSWORD_SHA256',avr_required_secret('AV_DISPATCHER_PASSWORD_SHA256',true));
++define('AV_SUPERADMIN_PASSWORD_SHA256',avr_required_secret('AV_SUPERADMIN_PASSWORD_SHA256',true));
+diff --git a/scripts/diagnose_max.py b/scripts/diagnose_max.py
+new file mode 100644
+index 0000000..ff9a6a6
+--- /dev/null
++++ b/scripts/diagnose_max.py
+@@ -0,0 +1,143 @@
++"""Read-only MAX diagnostics. Never sends messages or changes subscriptions.
++
++Run: python -m scripts.diagnose_max --chat-id <B2B_CHAT_ID>
++Credentials come from the environment/.env, never command-line arguments.
++"""
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from typing import Any
++
++import httpx
++from dotenv import load_dotenv
++
++MAX_API_BASE = "https://platform-api2.max.ru"
++
++
++def _get(client: httpx.Client, path: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
++    try:
++        response = client.get(path)
++    except httpx.RequestError:
++        # Exception messages and response bodies can contain sensitive data.
++        return {"status": "network_or_tls_error"}, None
++    summary: dict[str, Any] = {"http_status": response.status_code}
++    if response.status_code != 200:
++        summary["status"] = {
++            401: "unauthorized", 403: "forbidden", 404: "not_found",
++            429: "rate_limited",
++        }.get(response.status_code, "http_error")
++        return summary, None
++    try:
++        payload = response.json()
++    except ValueError:
++        summary["status"] = "invalid_response"
++        return summary, None
++    if not isinstance(payload, dict):
++        summary["status"] = "invalid_response"
++        return summary, None
++    summary["status"] = "ok"
++    return summary, payload
++
++
++def diagnose(
++    client: httpx.Client,
++    chat_id: int,
++    *,
++    expected_bot_id: int | None = None,
++    expected_webhook_url: str | None = None,
++) -> dict[str, Any]:
++    """Return an allowlisted summary; no names, messages, URLs or secrets."""
++    report: dict[str, Any] = {"read_only": True, "message_delivery_tested": False}
++    report["bot"], bot = _get(client, "/me")
++    if bot is None:
++        return report
++    if bot.get("is_bot") is not True or not isinstance(bot.get("user_id"), int):
++        report["bot"]["status"] = "invalid_response"
++        return report
++    if expected_bot_id is not None:
++        report["bot"]["matches_expected"] = bot["user_id"] == expected_bot_id
++        if not report["bot"]["matches_expected"]:
++            report["bot"]["status"] = "wrong_bot"
++            return report
++
++    report["chat"], chat = _get(client, f"/chats/{chat_id}")
++    if chat is not None:
++        chat_status = chat.get("status")
++        chat_type = chat.get("type")
++        if chat.get("chat_id") != chat_id or chat_status not in {"active", "removed", "left", "closed"} or chat_type not in {"chat", "channel", "dialog"}:
++            report["chat"]["status"] = "invalid_response"
++        else:
++            report["chat"]["active"] = chat_status == "active"
++            report["chat"]["type"] = chat_type
++            if chat_status != "active":
++                report["chat"]["status"] = "inactive"
++
++    report["membership"], member = _get(client, f"/chats/{chat_id}/members/me")
++    if member is not None:
++        permissions = member.get("permissions")
++        if member.get("user_id") != bot["user_id"] or (permissions is not None and not isinstance(permissions, list)):
++            report["membership"]["status"] = "invalid_response"
++        else:
++            report["membership"]["is_admin"] = member.get("is_admin") is True
++            report["membership"]["permissions_reported"] = permissions is not None
++            report["membership"]["write_permission_reported"] = any(
++                p in (permissions or []) for p in ("write", "post_edit_delete_message")
++            )
++            # Ordinary chat members may have no permissions field and still send.
++            # A read-only check cannot prove a POST /messages would succeed.
++
++    report["subscriptions"], data = _get(client, "/subscriptions")
++    if data is not None:
++        subscriptions = data.get("subscriptions")
++        if not isinstance(subscriptions, list) or not all(isinstance(s, dict) for s in subscriptions):
++            report["subscriptions"]["status"] = "invalid_response"
++        else:
++            report["subscriptions"]["count"] = len(subscriptions)
++            if expected_webhook_url:
++                matches = [s for s in subscriptions if s.get("url") == expected_webhook_url]
++                report["subscriptions"]["expected_url_found"] = bool(matches)
++                for event in ("message_created", "message_edited", "message_removed", "message_callback"):
++                    report["subscriptions"][event] = any(
++                        s.get("update_types") is None
++                        or isinstance(s.get("update_types"), list) and event in s["update_types"]
++                        for s in matches
++                    )
++    return report
++
++
++def main() -> int:
++    load_dotenv()
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--chat-id", type=int)
++    parser.add_argument("--expected-bot-id", type=int)
++    args = parser.parse_args()
++    token = os.getenv("MAX_BOT_TOKEN", "")
++    raw_chat_id = os.getenv("MAX_B2B_CHAT_ID", "")
++    try:
++        chat_id = args.chat_id if args.chat_id is not None else int(raw_chat_id)
++    except ValueError:
++        print(json.dumps({"status": "missing_or_invalid_chat_id", "read_only": True}))
++        return 2
++    if not token.strip():
++        print(json.dumps({"status": "missing_bot_token", "read_only": True}))
++        return 2
++    # Fixed official host and no redirects: credentials cannot be redirected.
++    with httpx.Client(
++        base_url=MAX_API_BASE, headers={"Authorization": token},
++        timeout=15, follow_redirects=False,
++    ) as client:
++        report = diagnose(
++            client, chat_id, expected_bot_id=args.expected_bot_id,
++            expected_webhook_url=os.getenv("MAX_WEBHOOK_URL") or None,
++        )
++    print(json.dumps(report, ensure_ascii=False, indent=2))
++    return 1 if any(
++        isinstance(value, dict) and value.get("status") != "ok"
++        for value in report.values()
++    ) else 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/safe_inventory.py b/scripts/safe_inventory.py
+new file mode 100644
+index 0000000..e1ae49b
+--- /dev/null
++++ b/scripts/safe_inventory.py
+@@ -0,0 +1,72 @@
++"""Explicit-path, read-only inventory. Never prints file contents."""
++import argparse
++import hashlib
++import json
++import os
++from pathlib import Path, PurePosixPath
++
++
++def safe_path(root, name):
++    path = PurePosixPath(name)
++    if not name or path.is_absolute() or '..' in path.parts or '\\' in name:
++        raise ValueError('Unsafe relative path')
++    root = Path(root).resolve(strict=True)
++    target = root
++    for part in path.parts:
++        target /= part
++        if target.is_symlink():
++            raise ValueError('Symlinks are forbidden')
++    return target
++
++
++def inventory(root, names):
++    rows = {}
++    for name in sorted(set(names)):
++        target = safe_path(root, name)
++        if not target.exists():
++            rows[name] = {'state': 'missing'}
++            continue
++        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
++        with os.fdopen(os.open(target, flags), 'rb') as stream:
++            import stat
++            before = os.fstat(stream.fileno())
++            if not stat.S_ISREG(before.st_mode):
++                raise ValueError('Only regular files allowed')
++            digest = hashlib.sha256()
++            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
++                digest.update(chunk)
++            after = os.fstat(stream.fileno())
++        current = target.stat()
++        if (before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) or (current.st_ino, current.st_dev) != (after.st_ino, after.st_dev):
++            raise ValueError('File changed during inventory; retry snapshot')
++        rows[name] = {'state': 'present', 'bytes': after.st_size, 'sha256': digest.hexdigest()}
++    return {'version': 1, 'files': rows}
++
++
++def compare(left, right):
++    return {name: 'same' if left['files'].get(name, {}).get('state') == 'present' and left['files'].get(name) == right['files'].get(name) else 'different_or_missing'
++            for name in sorted(set(left['files']) | set(right['files']))}
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    sub = parser.add_subparsers(dest='action', required=True)
++    scan = sub.add_parser('scan')
++    scan.add_argument('--root', required=True)
++    scan.add_argument('--paths', required=True, help='JSON array of explicit relative paths; no recursive scan')
++    diff = sub.add_parser('compare')
++    diff.add_argument('left')
++    diff.add_argument('right')
++    args = parser.parse_args()
++    try:
++        if args.action == 'scan':
++            result = inventory(args.root, json.loads(Path(args.paths).read_text()))
++        else:
++            result = compare(json.loads(Path(args.left).read_text()), json.loads(Path(args.right).read_text()))
++    except (OSError, ValueError, KeyError, TypeError):
++        parser.exit(2, 'Inventory failed; check paths and snapshot consistency locally.\n')
++    print(json.dumps(result, ensure_ascii=False, indent=2))
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/scripts/verify_restore.py b/scripts/verify_restore.py
+new file mode 100644
+index 0000000..9e7beb4
+--- /dev/null
++++ b/scripts/verify_restore.py
+@@ -0,0 +1,71 @@
++"""Offline ZIP restore drill into a NEW directory with an external trusted manifest."""
++import argparse
++import hashlib
++import json
++import shutil
++import stat
++import tempfile
++import zipfile
++from pathlib import Path
++from scripts.safe_inventory import safe_path
++
++
++def restore(archive, manifest, target, max_bytes=256 * 1024 * 1024):
++    target = Path(target)
++    if target.exists() or target.is_symlink():
++        raise ValueError('Target must not exist')
++    parent = target.parent.resolve(strict=True)
++    if target.name in ('', '.', '..'):
++        raise ValueError('Invalid target')
++    target = parent / target.name
++    if manifest.get('version') != 1 or not isinstance(manifest.get('files'), dict):
++        raise ValueError('Invalid trusted manifest')
++    expected = manifest['files']
++    with tempfile.TemporaryDirectory(prefix='.avr-restore-', dir=parent) as temp:
++        with zipfile.ZipFile(archive) as source:
++            entries = source.infolist()
++            names = [entry.filename for entry in entries]
++            if len(names) != len(set(names)) or set(names) != set(expected):
++                raise ValueError('Archive entries differ from trusted manifest')
++            if sum(entry.file_size for entry in entries) > max_bytes:
++                raise ValueError('Archive too large')
++            for entry in entries:
++                destination = safe_path(temp, entry.filename)
++                mode = entry.external_attr >> 16
++                if entry.is_dir() or stat.S_ISLNK(mode) or (stat.S_IFMT(mode) not in (0, stat.S_IFREG)):
++                    raise ValueError('Non-file archive member')
++                destination.parent.mkdir(parents=True, exist_ok=True)
++                digest = hashlib.sha256()
++                size = 0
++                with source.open(entry) as src, destination.open('xb') as dst:
++                    while chunk := src.read(1024 * 1024):
++                        size += len(chunk)
++                        if size > max_bytes:
++                            raise ValueError('Archive too large')
++                        digest.update(chunk)
++                        dst.write(chunk)
++                if size != expected[entry.filename]['bytes'] or digest.hexdigest() != expected[entry.filename]['sha256']:
++                    raise ValueError('Backup checksum mismatch')
++                destination.chmod(0o600)
++        # Exclusive creation; never overwrite an existing directory, including a race.
++        target.mkdir(mode=0o700)
++        for child in Path(temp).iterdir():
++            shutil.move(str(child), target / child.name)
++    return {'verified_files': len(expected), 'restored_bytes': sum(row['bytes'] for row in expected.values())}
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--archive', required=True)
++    parser.add_argument('--manifest', required=True)
++    parser.add_argument('--target', required=True)
++    args = parser.parse_args()
++    try:
++        result = restore(args.archive, json.loads(Path(args.manifest).read_text()), args.target)
++    except (OSError, ValueError, KeyError, zipfile.BadZipFile, RuntimeError):
++        parser.exit(2, 'Restore rejected; inspect the backup in the isolated workspace.\n')
++    print(json.dumps(result))
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/site/patches/9.0/finance_payment_guard.php b/site/patches/9.0/finance_payment_guard.php
+new file mode 100644
+index 0000000..c40c781
+--- /dev/null
++++ b/site/patches/9.0/finance_payment_guard.php
+@@ -0,0 +1,37 @@
++<?php
++/* Candidate for staging: only server-verified bank evidence permits accrual. */
++function av_payment_minor($value) {
++ if(!is_numeric($value)||!is_finite((float)$value)||(float)$value<=0)return null;
++ return (int)round((float)$value*100);
++}
++function av_verified_cashless_payment($order) {
++ $proof=$order['payment_verification']??array();
++ $expected=av_payment_minor($order['alfa_amount']??null);
++ $gross=av_payment_minor($order['final_price']??$order['estimated_price']??null);
++ return ($order['payment_status']??'')==='paid'
++  && ($order['payment_provider']??'')==='alfa'
++  && ($proof['provider']??'')==='alfa'
++  && !empty($proof['verified_at'])
++  && !empty($order['alfa_order_id'])
++  && ($proof['bank_order_id']??null)===$order['alfa_order_id']
++  && !empty($order['alfa_order_number'])
++  && ($proof['order_number']??null)===$order['alfa_order_number']
++  && ($proof['status_code']??null)===2
++  && ($proof['currency']??null)==='643'
++  && $expected!==null && $expected===$gross
++  && ($proof['amount_minor']??null)===$expected
++  && av_payment_minor($order['paid_amount']??null)===$expected;
++}
++function av_alfa_verification($order,$data) {
++ $amount=$data['amount']??$data['Amount']??null;
++ if(!(is_int($amount)||(is_string($amount)&&preg_match('/^[0-9]+$/D',$amount))))return null;
++ $expected=av_payment_minor($order['alfa_amount']??null);
++ if(empty($order['alfa_order_id'])||$expected===null||(int)$amount!==$expected
++  || (string)($data['currency']??$data['Currency']??'')!=='643'
++  || empty($order['alfa_order_number'])
++  || (string)($data['orderNumber']??$data['OrderNumber']??'')!==$order['alfa_order_number']
++  || (int)($data['orderStatus']??$data['OrderStatus']??-1)!==2)return null;
++ return array('provider'=>'alfa','bank_order_id'=>$order['alfa_order_id'],
++  'order_number'=>$order['alfa_order_number'],'status_code'=>2,'currency'=>'643',
++  'amount_minor'=>(int)$amount,'verified_at'=>date('c'));
++}
+diff --git a/tests/php/finance_guard_test.php b/tests/php/finance_guard_test.php
+new file mode 100644
+index 0000000..a8f18f3
+--- /dev/null
++++ b/tests/php/finance_guard_test.php
+@@ -0,0 +1,40 @@
++<?php
++/* Offline fixtures only: no site bootstrap, real data or bank requests. */
++require __DIR__.'/../../site/patches/9.0/finance_payment_guard.php';
++$source=file_get_contents(__DIR__.'/../../site/patches/9.0/config.php');
++foreach(array('av_ledger_add_once','av_order_financials','av_finance_record_order','av_post_order_finance') as $name){
++ if(!preg_match('/function '.preg_quote($name,'/').'\([^\n]*\)\{\n.*?\n\}/s',$source,$match))throw new Exception('Missing function');
++ eval($match[0]);
++}
++$ledger=array();$finance=array();$failLedger=false;$failFinance=false;$checks=0;
++function check($condition){global $checks;if(!$condition)throw new Exception('Fixture failed at check '.($checks+1));$checks++;}
++function av_ledger(){global $ledger;return $ledger;}
++function av_ledger_add($worker,$order,$type,$amount,$note){global $ledger,$failLedger;if($failLedger)return false;$ledger[]=array('worker_id'=>$worker,'order_id'=>$order,'type'=>$type,'amount'=>$amount,'status'=>'posted');return true;}
++function av_read_finance(){global $finance;return $finance;}
++function av_write_finance($rows){global $finance,$failFinance;if($failFinance)return false;$finance=$rows;return true;}
++function av_worker_by_id($id){return $id==='worker-fixture'?array('id'=>$id):null;}
++function av_worker_loyalty($worker){return array('commission_rate'=>35,'payout_rate'=>65,'level'=>'fixture','name'=>'fixture');}
++$order=array('id'=>'order-fixture','assigned_worker_id'=>'worker-fixture','status'=>'done','payment_method'=>'card','payment_status'=>'paid','payment_provider'=>'alfa','alfa_order_id'=>'bank-fixture','alfa_order_number'=>'number-fixture','alfa_amount'=>1000,'final_price'=>1000,'paid_amount'=>1000);
++check(!av_verified_cashless_payment($order));
++check(!av_post_order_finance($order)&&count($ledger)===0&&count($finance)===0);
++$data=array('orderStatus'=>2,'amount'=>100000,'currency'=>'643','orderNumber'=>'number-fixture');
++
++$stringAmount=$data;$stringAmount['amount']='100000';check(av_alfa_verification($order,$stringAmount)!==null);
++$invalidAmount=$data;$invalidAmount['amount']='100000.0';check(av_alfa_verification($order,$invalidAmount)===null);
++$noBank=$order;unset($noBank['alfa_order_id']);check(av_alfa_verification($noBank,$data)===null);
++$order['payment_verification']=av_alfa_verification($order,$data);
++check(av_verified_cashless_payment($order));
++foreach(array('amount'=>99999,'currency'=>'840','orderNumber'=>'other','orderStatus'=>1) as $field=>$value){$bad=$data;$bad[$field]=$value;check(av_alfa_verification($order,$bad)===null);}
++$bad=$data;unset($bad['amount']);$bad['paymentAmountInfo']=array('paymentState'=>2);check(av_alfa_verification($order,$bad)===null);
++foreach(array('final_price'=>1100,'alfa_order_id'=>'other','payment_status'=>'refunded','paid_amount'=>999) as $field=>$value){$bad=$order;$bad[$field]=$value;check(!av_verified_cashless_payment($bad));}
++check(av_post_order_finance($order)&&$order['finance_posted']===true&&count($ledger)===1&&count($finance)===1);
++check($ledger[0]['amount']===650.0);
++check(av_post_order_finance($order)&&count($ledger)===1&&count($finance)===1);
++$conflict=$order;$conflict['final_price']=1200;$conflict['payment_method']='cash';check(!av_post_order_finance($conflict)&&$conflict['finance_posted']==='storage_error'&&count($ledger)===1);
++$cash=$order;$cash['id']='cash-fixture';$cash['payment_method']='cash';$cash['payment_status']='unpaid';unset($cash['payment_verification']);check(av_post_order_finance($cash)&&$ledger[1]['amount']===-350.0);
++$b2b=$cash;$b2b['id']='b2b-fixture';$b2b['source']='max_partner';check(!av_post_order_finance($b2b)&&$b2b['finance_posted']==='b2b_separate'&&count($ledger)===2);
++$failure=$cash;$failure['id']='failed-finance';$failFinance=true;check(!av_post_order_finance($failure)&&$failure['finance_posted']==='storage_error'&&count($ledger)===2);$failFinance=false;
++$failure['id']='failed-ledger';$failLedger=true;check(!av_post_order_finance($failure)&&$failure['finance_posted']==='storage_error'&&count($ledger)===2);$failLedger=false;
++check(av_post_order_finance($failure)&&count($ledger)===3); // retry after a partial write
++$unfinished=$cash;$unfinished['id']='unfinished';$unfinished['status']='assigned';check(!av_post_order_finance($unfinished)&&count($ledger)===3);
++echo json_encode(array('passed'=>$checks,'scope'=>'isolated central finance fixtures')).PHP_EOL;
+diff --git a/tests/test_config.py b/tests/test_config.py
+new file mode 100644
+index 0000000..365a5f3
+--- /dev/null
++++ b/tests/test_config.py
+@@ -0,0 +1,34 @@
++import os
++
++import pytest
++from pydantic import ValidationError
++
++os.environ.setdefault("MAX_BOT_TOKEN", "test-token-placeholder")
++os.environ.setdefault("MAX_WEBHOOK_SECRET", "test-secret-ABC")
++
++from webhook.config import Settings
++
++
++@pytest.mark.parametrize("secret", ["", "abcd", "has space", "has_underscore", "я" * 10, "a" * 257])
++def test_invalid_webhook_secret_prevents_startup(secret):
++    with pytest.raises(ValidationError):
++        Settings(_env_file=None, max_bot_token="test-token", max_webhook_secret=secret)
++
++
++@pytest.mark.parametrize("token", ["", "   "])
++def test_blank_bot_token_prevents_startup(token):
++    with pytest.raises(ValidationError):
++        Settings(_env_file=None, max_bot_token=token, max_webhook_secret="test-secret")
++
++
++def test_config_validation_does_not_print_secret_input():
++    invalid = "PRIVATE_secret_material"
++    with pytest.raises(ValidationError) as error:
++        Settings(_env_file=None, max_bot_token="test-token", max_webhook_secret=invalid)
++    assert invalid not in str(error.value)
++
++
++def test_credentials_are_not_in_config_repr():
++    config = Settings(_env_file=None, max_bot_token="private-token", max_webhook_secret="private-secret")
++    assert "private-token" not in repr(config)
++    assert "private-secret" not in repr(config)
+diff --git a/tests/test_max_diagnostics.py b/tests/test_max_diagnostics.py
+new file mode 100644
+index 0000000..b91da94
+--- /dev/null
++++ b/tests/test_max_diagnostics.py
+@@ -0,0 +1,97 @@
++import json
++
++import httpx
++import pytest
++
++from scripts.diagnose_max import diagnose
++
++
++def mock_client(overrides=None):
++    responses = {
++        "/me": (200, {"user_id": 1, "is_bot": True, "first_name": "PRIVATE_NAME"}),
++        "/chats/-2": (200, {"chat_id": -2, "type": "chat", "status": "active", "title": "PRIVATE_CHAT"}),
++        "/chats/-2/members/me": (200, {"user_id": 1, "is_admin": False}),
++        "/subscriptions": (200, {"subscriptions": [{
++            "url": "https://example.com/webhook?key=PRIVATE_URL_KEY",
++            "update_types": ["message_created"], "secret": "PRIVATE_SECRET",
++        }]}),
++    }
++    responses.update(overrides or {})
++    calls = []
++
++    def handler(request):
++        assert request.method == "GET"
++        assert request.headers["Authorization"] == "PRIVATE_TOKEN"
++        calls.append(request.url.path)
++        status, data = responses[request.url.path]
++        return httpx.Response(status, json=data)
++
++    return httpx.Client(
++        transport=httpx.MockTransport(handler), base_url="https://platform-api2.max.ru",
++        headers={"Authorization": "PRIVATE_TOKEN"},
++    ), calls
++
++
++def test_diagnostics_only_reads_and_excludes_sensitive_data():
++    client, calls = mock_client()
++    with client:
++        report = diagnose(client, -2, expected_bot_id=1, expected_webhook_url="https://example.com/webhook?key=PRIVATE_URL_KEY")
++    assert calls == ["/me", "/chats/-2", "/chats/-2/members/me", "/subscriptions"]
++    assert "PRIVATE" not in json.dumps(report)
++    assert report["message_delivery_tested"] is False
++    assert report["membership"]["permissions_reported"] is False
++    assert report["membership"]["status"] == "ok"
++    assert report["subscriptions"]["message_created"] is True
++    assert report["subscriptions"]["message_edited"] is False
++
++
++def test_invalid_token_stops_requests():
++    client, calls = mock_client({"/me": (401, {"message": "PRIVATE_RESPONSE"})})
++    with client:
++        report = diagnose(client, -2)
++    assert calls == ["/me"]
++    assert report["bot"]["status"] == "unauthorized"
++    assert "PRIVATE" not in json.dumps(report)
++
++
++def test_wrong_bot_stops_before_chat_queries():
++    client, calls = mock_client()
++    with client:
++        report = diagnose(client, -2, expected_bot_id=999)
++    assert calls == ["/me"]
++    assert report["bot"]["status"] == "wrong_bot"
++
++
++@pytest.mark.parametrize("status, expected", [(403, "forbidden"), (404, "not_found"), (429, "rate_limited"), (500, "http_error"), (302, "http_error")])
++def test_chat_access_errors_are_explicit(status, expected):
++    client, _ = mock_client({"/chats/-2": (status, {"message": "PRIVATE_RESPONSE"})})
++    with client:
++        report = diagnose(client, -2)
++    assert report["chat"]["status"] == expected
++    assert "PRIVATE" not in json.dumps(report)
++
++
++def test_removed_bot_is_not_reported_as_active():
++    client, _ = mock_client({"/chats/-2": (200, {"chat_id": -2, "type": "chat", "status": "removed"})})
++    with client:
++        report = diagnose(client, -2)
++    assert report["chat"]["status"] == "inactive"
++    assert report["chat"]["active"] is False
++
++
++def test_empty_subscriptions_do_not_imply_outgoing_message_failure():
++    client, _ = mock_client({"/subscriptions": (200, {"subscriptions": []})})
++    with client:
++        report = diagnose(client, -2)
++    assert report["subscriptions"]["count"] == 0
++    assert report["subscriptions"]["status"] == "ok"
++    assert report["message_delivery_tested"] is False
++
++
++def test_network_exception_is_redacted():
++    def handler(request):
++        raise httpx.ConnectError("PRIVATE_TLS_DETAIL", request=request)
++    with httpx.Client(transport=httpx.MockTransport(handler), base_url="https://platform-api2.max.ru") as client:
++        report = diagnose(client, -2)
++    assert report["bot"]["status"] == "network_or_tls_error"
++    assert "PRIVATE" not in json.dumps(report)
+diff --git a/tests/test_safe_operations.py b/tests/test_safe_operations.py
+new file mode 100644
+index 0000000..7e76cf6
+--- /dev/null
++++ b/tests/test_safe_operations.py
+@@ -0,0 +1,86 @@
++import hashlib
++import stat
++import zipfile
++
++import pytest
++
++from scripts.safe_inventory import inventory, compare
++from scripts.verify_restore import restore
++
++
++def backup(tmp_path, files, mode=None):
++    archive = tmp_path / 'backup.zip'
++    with zipfile.ZipFile(archive, 'w') as z:
++        for name, value in files.items():
++            info = zipfile.ZipInfo(name)
++            if mode:
++                info.external_attr = mode << 16
++            z.writestr(info, value)
++    manifest = {'version': 1, 'files': {name: {'bytes': len(value), 'sha256': hashlib.sha256(value).hexdigest()} for name, value in files.items()}}
++    return archive, manifest
++
++
++def test_reconciliation_detects_drift_and_missing_without_contents(tmp_path):
++    (tmp_path / 'code.php').write_text('private fixture content')
++    first = inventory(tmp_path, ['code.php', 'missing.php'])
++    assert 'private fixture content' not in str(first)
++    (tmp_path / 'code.php').write_text('changed')
++    assert compare(first, inventory(tmp_path, ['code.php', 'missing.php'])) == {'code.php': 'different_or_missing', 'missing.php': 'different_or_missing'}
++
++
++@pytest.mark.parametrize('name', ['../secret', '/etc/passwd', 'x\\y'])
++def test_inventory_rejects_unsafe_paths(tmp_path, name):
++    with pytest.raises(ValueError):
++        inventory(tmp_path, [name])
++
++
++def test_inventory_rejects_symlinks(tmp_path):
++    (tmp_path / 'link').symlink_to('/etc/passwd')
++    with pytest.raises(ValueError):
++        inventory(tmp_path, ['link'])
++
++
++def test_restore_roundtrip_and_no_overwrite(tmp_path):
++    files = {'data/orders.php': b'<?php exit; ?>\n[]', 'data/queue.json': b'[]'}
++    archive, manifest = backup(tmp_path, files)
++    target = tmp_path / 'stand'
++    assert restore(archive, manifest, target)['verified_files'] == 2
++    assert (target / 'data/orders.php').read_bytes() == files['data/orders.php']
++    with pytest.raises(ValueError):
++        restore(archive, manifest, target)
++    assert (target / 'data/orders.php').read_bytes() == files['data/orders.php']
++
++
++def test_restore_rejects_corruption_before_publishing(tmp_path):
++    archive, manifest = backup(tmp_path, {'orders.json': b'[]'})
++    manifest['files']['orders.json']['sha256'] = '0' * 64
++    with pytest.raises(ValueError):
++        restore(archive, manifest, tmp_path / 'stand')
++    assert not (tmp_path / 'stand').exists()
++
++
++@pytest.mark.parametrize('name', ['../escape', '/escape'])
++def test_restore_rejects_traversal(tmp_path, name):
++    archive, manifest = backup(tmp_path, {name: b'x'})
++    with pytest.raises(ValueError):
++        restore(archive, manifest, tmp_path / 'stand')
++    assert not (tmp_path / 'stand').exists()
++
++
++def test_restore_rejects_symlinks(tmp_path):
++    archive, manifest = backup(tmp_path, {'link': b'/etc/passwd'}, stat.S_IFLNK | 0o777)
++    with pytest.raises(ValueError):
++        restore(archive, manifest, tmp_path / 'stand')
++
++
++def test_restore_rejects_oversized_backup(tmp_path):
++    archive, manifest = backup(tmp_path, {'data': b'123'})
++    with pytest.raises(ValueError):
++        restore(archive, manifest, tmp_path / 'stand', max_bytes=2)
++
++
++def test_restore_rejects_unmanifested_files(tmp_path):
++    archive, manifest = backup(tmp_path, {'one': b'1', 'two': b'2'})
++    del manifest['files']['two']
++    with pytest.raises(ValueError):
++        restore(archive, manifest, tmp_path / 'stand')
+diff --git a/tests/test_transactional_storage_pilot.py b/tests/test_transactional_storage_pilot.py
+new file mode 100644
+index 0000000..474ded0
+--- /dev/null
++++ b/tests/test_transactional_storage_pilot.py
+@@ -0,0 +1,75 @@
++"""Schema invariants on isolated SQLite files, not production adapter tests."""
++import sqlite3
++from concurrent.futures import ThreadPoolExecutor
++from pathlib import Path
++
++import pytest
++
++SCHEMA = Path(__file__).resolve().parents[1] / 'deployment/schema/transactional_storage_pilot.sql'
++
++
++def db(path):
++    conn = sqlite3.connect(path, timeout=5)
++    conn.execute('PRAGMA foreign_keys=ON')
++    return conn
++
++
++@pytest.fixture
++def pilot(tmp_path):
++    path = tmp_path / 'pilot.sqlite'
++    with db(path) as conn:
++        conn.executescript(SCHEMA.read_text())
++        conn.execute("INSERT INTO workers VALUES ('w1','online'),('w2','online')")
++        conn.execute("INSERT INTO orders VALUES ('o','new','avr',NULL,0,100000,'643')")
++    return path
++
++
++def test_two_claims_have_one_winner(pilot):
++    def claim(worker):
++        with db(pilot) as conn:
++            conn.execute('BEGIN IMMEDIATE')
++            changed = conn.execute("UPDATE orders SET worker_id=?,status='assigned',version=version+1 WHERE id='o' AND version=0 AND status='new'", (worker,)).rowcount
++            return changed
++    with ThreadPoolExecutor(2) as pool:
++        assert sorted(pool.map(claim, ['w1', 'w2'])) == [0, 1]
++    with db(pilot) as conn:
++        assert conn.execute("SELECT version FROM orders WHERE id='o'").fetchone() == (1,)
++
++
++def prepare(conn, payment_amount=100000, payment_status='captured'):
++    conn.execute("UPDATE orders SET status='done',worker_id='w1' WHERE id='o'")
++    conn.execute("INSERT INTO payment_verifications VALUES ('p','o','fixture','bank-id',?,'643',?,'fixture-time')", (payment_amount, payment_status))
++
++
++def credit(conn):
++    conn.execute("INSERT INTO ledger VALUES ('l','o','w1','driver_credit',65000,'p','credit-o','fixture-time')")
++
++
++@pytest.mark.parametrize('amount,status', [(99999, 'captured'), (100000, 'refunded'), (100000, 'reversed')])
++def test_unconfirmed_credit_rejected(pilot, amount, status):
++    with db(pilot) as conn:
++        prepare(conn, amount, status)
++        with pytest.raises(sqlite3.IntegrityError):
++            credit(conn)
++        assert conn.execute('SELECT COUNT(*) FROM ledger').fetchone() == (0,)
++
++
++def test_duplicate_credit_rejected(pilot):
++    with db(pilot) as conn:
++        prepare(conn)
++        credit(conn)
++        with pytest.raises(sqlite3.IntegrityError):
++            credit(conn)
++        assert conn.execute('SELECT COUNT(*) FROM ledger').fetchone() == (1,)
++
++
++def test_outbox_failure_rolls_back_entire_transaction(pilot):
++    with db(pilot) as conn:
++        prepare(conn)
++        conn.execute("INSERT INTO outbox VALUES ('e','event-o','o','ack','{}','pending',0,NULL,'fixture-time')")
++    with pytest.raises(sqlite3.IntegrityError), db(pilot) as conn:
++        conn.execute('BEGIN IMMEDIATE')
++        credit(conn)
++        conn.execute("INSERT INTO outbox VALUES ('e2','event-o','o','ack','{}','pending',0,NULL,'fixture-time')")
++    with db(pilot) as conn:
++        assert conn.execute('SELECT COUNT(*) FROM ledger').fetchone() == (0,)

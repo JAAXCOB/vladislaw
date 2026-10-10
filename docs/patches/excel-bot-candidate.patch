@@ -1,0 +1,659 @@
+diff --git a/.env.example b/.env.example
+index 8a28aea..e27a46a 100644
+--- a/.env.example
++++ b/.env.example
+@@ -33,0 +34 @@ AV_RESCUE_SYNC_QUEUE_PATH=data/av_rescue_sync_queue.json
++MAX_ACK_QUEUE_PATH=data/max_ack_queue.json
+diff --git a/scripts/safe_diagnostics.py b/scripts/safe_diagnostics.py
+index fefd83c..9646999 100644
+--- a/scripts/safe_diagnostics.py
++++ b/scripts/safe_diagnostics.py
+@@ -57,0 +58,2 @@ show("order_ack_send_failures_today", "send_message failed:")
++show("order_ack_outbox_failures_today", "MAX acknowledgement delivery failed")
++show("order_ack_not_requested_today", "AV Rescue acknowledgement not requested")
+@@ -65,0 +68,4 @@ print(f"partner_sync_queue={len(queue) if isinstance(queue, list) else -1}")
++ack_queue = json_value(Path("data/max_ack_queue.json"), [])
++ack_dead = json_value(Path("data/max_ack_queue.dead.json"), [])
++print(f"max_ack_queue={len(ack_queue) if isinstance(ack_queue, list) else -1}")
++print(f"max_ack_dead={len(ack_dead) if isinstance(ack_dead, list) else -1}")
+diff --git a/tests/test_webhook.py b/tests/test_webhook.py
+index 09772b8..8b93c6e 100644
+--- a/tests/test_webhook.py
++++ b/tests/test_webhook.py
+@@ -267,0 +268,12 @@ def test_structured_partner_request_fields() -> None:
++
++
++def test_empty_runtime_secret_rejects_before_processing(client, monkeypatch):
++    from webhook.config import settings
++    monkeypatch.setattr(settings, "max_webhook_secret", "")
++    assert post_webhook(client, MESSAGE_CREATED_PAYLOAD, secret="").status_code == 403
++    assert post_webhook(client, MESSAGE_CREATED_PAYLOAD).status_code == 403
++
++
++def test_non_ascii_secret_is_rejected(client):
++    response = client.post("/webhook", content=b"{}", headers={"X-Max-Bot-Api-Secret": b"\xd0\xbf"})
++    assert response.status_code == 403
+diff --git a/webhook/av_rescue_client.py b/webhook/av_rescue_client.py
+index 24e60c0..3317391 100644
+--- a/webhook/av_rescue_client.py
++++ b/webhook/av_rescue_client.py
+@@ -5 +5,2 @@ price, salary or financial fields. Failed deliveries are kept in a small local
+-queue and retried on the next MAX event or daily reconciliation run.
++queue and retried on the next MAX event or daily reconciliation run. MAX
++acknowledgements have their own durable outbox, independent of site retries.
+@@ -19 +20 @@ from webhook.config import settings
+-from webhook.max_client import send_message
++from webhook.max_client import MaxAPIError, send_message
+@@ -39,5 +40,3 @@ def _send_order_ack(response_data: dict[str, Any], payload: dict[str, Any]) -> N
+-        log.error(
+-            "AV Rescue requested an acknowledgement without chat/text | source_id=%s",
+-            payload.get("source_id"),
+-        )
+-        return
++        raise ValueError("AV Rescue acknowledgement is missing chat or text")
++    if chat_id not in settings.allowed_chat_ids or chat_id != str(payload.get("source_chat_id", "")):
++        raise ValueError("AV Rescue acknowledgement must target the allowed source chat")
+@@ -54,2 +53,2 @@ def _send_order_ack(response_data: dict[str, Any], payload: dict[str, Any]) -> N
+-    except RuntimeError:
+-        if not reply_to_mid:
++    except MaxAPIError as exc:
++        if not reply_to_mid or exc.status_code not in (400, 404):
+@@ -61 +59,0 @@ def _send_order_ack(response_data: dict[str, Any], payload: dict[str, Any]) -> N
+-            exc_info=True,
+@@ -78 +76 @@ def _split_destination_field(original_text: str, fallback: str | None) -> tuple[
+-    labelled = re.search(r"(?im)^\\s*Куда\\s*:\\s*(.+?)\\s*$", original_text)
++    labelled = re.search(r"(?im)^\s*Куда\s*:\s*(.+?)\s*$", original_text)
+@@ -83 +81 @@ def _split_destination_field(original_text: str, fallback: str | None) -> tuple[
+-    structured = re.match(r"^(.+?)\\s*\\(([^()]*)\\)\\s*$", raw_value)
++    structured = re.match(r"^(.+?)\s*\(([^()]*)\)\s*$", raw_value)
+@@ -155,0 +154,94 @@ def _failure_record(payload: dict[str, Any], previous: dict[str, Any] | None = N
++def _ack_queue_path() -> Path:
++    path = Path(settings.max_ack_queue_path)
++    return path if path.is_absolute() else Path(__file__).resolve().parent.parent / path
++
++
++def pending_ack_count() -> int:
++    path = _ack_queue_path()
++    with file_lock(path):
++        try:
++            return len(_read_queue(path))
++        except Exception:
++            return -1
++
++
++def _enqueue_order_ack(response_data: dict[str, Any], payload: dict[str, Any]) -> None:
++    if response_data.get("reply_required") is not True:
++        log.info(
++            "AV Rescue acknowledgement not requested | flag_present=%s",
++            "reply_required" in response_data,
++        )
++        return
++    if not payload.get("source_id"):
++        raise ValueError("An acknowledgement requires a stable source_id")
++    path = _ack_queue_path()
++    sent_path = path.with_name(path.stem + ".sent" + path.suffix)
++    with file_lock(path):
++        pending = _read_queue(path)
++        sent = _read_queue(sent_path)
++        key = _payload_key(payload)
++        if any(_payload_key(item.get("payload", {})) == key for item in pending + sent):
++            return
++        pending.append({
++            "payload": {
++                "source_id": payload["source_id"], "event": "upsert",
++                "source_chat_id": payload.get("source_chat_id"),
++                "source_message_id": payload.get("source_message_id"),
++            },
++            "response_data": {
++                "reply_required": True,
++                "reply_chat_id": response_data.get("reply_chat_id"),
++                "reply_text": response_data.get("reply_text"),
++            },
++            "attempts": 0, "next_attempt_at": 0,
++        })
++        _write_queue(pending, path)
++
++
++def drain_order_acknowledgements(max_items: int = 2) -> int:
++    """Retry saved MAX replies without resubmitting already-saved site orders.
++
++    Delivery is at least once: a crash after MAX accepts a message but before
++    the local sent marker is saved can cause a duplicate. No send is initiated
++    merely because a site response says ok without reply_required=true.
++    """
++    path = _ack_queue_path()
++    sent_path = path.with_name(path.stem + ".sent" + path.suffix)
++    dead_path = path.with_name(path.stem + ".dead" + path.suffix)
++    processed = 0
++    with file_lock(path):
++        pending = _read_queue(path)
++        sent = _read_queue(sent_path)
++        remaining = []
++        for item in pending:
++            payload = item.get("payload", {})
++            if any(_payload_key(row.get("payload", {})) == _payload_key(payload) for row in sent):
++                continue
++            if processed >= max_items or int(item.get("next_attempt_at", 0)) > time.time():
++                remaining.append(item)
++                continue
++            processed += 1
++            try:
++                _send_order_ack(item.get("response_data", {}), payload)
++            except Exception as exc:
++                failed = {**item, **_failure_record(payload, item)}
++                log.warning(
++                    "MAX acknowledgement delivery failed | attempt=%d | error=%s",
++                    failed["attempts"], type(exc).__name__,
++                )
++                if failed["attempts"] >= MAX_DELIVERY_ATTEMPTS:
++                    dead = _read_queue(dead_path)
++                    dead.append(failed)
++                    _write_queue(dead, dead_path)
++                else:
++                    remaining.append(failed)
++            else:
++                sent.append({
++                    "payload": {"source_id": payload.get("source_id"), "event": "upsert"},
++                    "sent_at": int(time.time()),
++                })
++                _write_queue(sent, sent_path)
++        _write_queue(remaining, path)
++    return processed
++
++
+@@ -171 +263 @@ def _post(payload: dict[str, Any]) -> bool:
+-                _send_order_ack(response_data, payload)
++                _enqueue_order_ack(response_data, payload)
+diff --git a/webhook/config.py b/webhook/config.py
+index d3e4e0b..163179a 100644
+--- a/webhook/config.py
++++ b/webhook/config.py
+@@ -1 +1 @@
+-from pydantic import field_validator, model_validator
++from pydantic import Field, field_validator, model_validator
+@@ -6 +6 @@ class Settings(BaseSettings):
+-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
++    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", hide_input_in_errors=True)
+@@ -8,2 +8,2 @@ class Settings(BaseSettings):
+-    max_bot_token: str
+-    max_webhook_secret: str
++    max_bot_token: str = Field(repr=False)
++    max_webhook_secret: str = Field(repr=False)
+@@ -12,2 +12,2 @@ class Settings(BaseSettings):
+-    openai_api_key: str = ""
+-    yandex_api_key: str = ""
++    openai_api_key: str = Field(default="", repr=False)
++    yandex_api_key: str = Field(default="", repr=False)
+@@ -20 +20 @@ class Settings(BaseSettings):
+-    av_rescue_api_key: str = ""
++    av_rescue_api_key: str = Field(default="", repr=False)
+@@ -21,0 +22 @@ class Settings(BaseSettings):
++    max_ack_queue_path: str = "data/max_ack_queue.json"
+diff --git a/webhook/event_inbox.py b/webhook/event_inbox.py
+index c984b2a..ec70692 100644
+--- a/webhook/event_inbox.py
++++ b/webhook/event_inbox.py
+@@ -135 +135,4 @@ def drain(processor: Callable[[dict[str, Any]], None], max_items: int = 10) -> i
+-def start_worker(processor: Callable[[dict[str, Any]], None]) -> None:
++def start_worker(
++    processor: Callable[[dict[str, Any]], None],
++    maintenance: Callable[[], Any] | None = None,
++) -> None:
+@@ -146,0 +150,5 @@ def start_worker(processor: Callable[[dict[str, Any]], None]) -> None:
++            if maintenance is not None:
++                try:
++                    maintenance()
++                except Exception:
++                    log.exception("Inbox maintenance cycle failed")
+diff --git a/webhook/main.py b/webhook/main.py
+index bb5b3a8..a190d64 100644
+--- a/webhook/main.py
++++ b/webhook/main.py
+@@ -17 +17,4 @@ from webhook.config import settings
+-from webhook.av_rescue_client import pending_sync_count, sync_extracted_job
++from webhook.av_rescue_client import (
++    drain_order_acknowledgements, pending_ack_count, pending_sync_count,
++    sync_extracted_job,
++)
+@@ -67 +70 @@ def ensure_payroll_structure() -> None:
+-    start_worker(process_update_payload)
++    start_worker(process_update_payload, maintenance=drain_order_acknowledgements)
+@@ -82,0 +86 @@ async def health() -> dict[str, str | int]:
++        "max_ack_queue": pending_ack_count(),
+@@ -180 +184,3 @@ async def webhook(
+-    if not secrets.compare_digest(x_max_bot_api_secret, settings.max_webhook_secret):
++    if not settings.max_webhook_secret or not x_max_bot_api_secret or not secrets.compare_digest(
++        x_max_bot_api_secret.encode("utf-8"), settings.max_webhook_secret.encode("utf-8"),
++    ):
+diff --git a/webhook/max_client.py b/webhook/max_client.py
+index 56fd8cb..f9c124b 100644
+--- a/webhook/max_client.py
++++ b/webhook/max_client.py
+@@ -13,0 +14,8 @@ log = logging.getLogger("max_webhook.max_client")
++class MaxAPIError(RuntimeError):
++    """HTTP failure without copying message content or secrets into logs."""
++
++    def __init__(self, status_code: int) -> None:
++        self.status_code = status_code
++        super().__init__(f"send_message failed: HTTP {status_code}")
++
++
+@@ -47 +55 @@ def send_message(
+-        raise RuntimeError(f"send_message failed: {resp.status_code} {resp.text[:300]}")
++        raise MaxAPIError(resp.status_code)
+diff --git a/scripts/diagnose_max.py b/scripts/diagnose_max.py
+new file mode 100644
+index 0000000..ff9a6a6
+--- /dev/null
++++ b/scripts/diagnose_max.py
+@@ -0,0 +1,143 @@
++"""Read-only MAX diagnostics. Never sends messages or changes subscriptions.
++
++Run: python -m scripts.diagnose_max --chat-id <B2B_CHAT_ID>
++Credentials come from the environment/.env, never command-line arguments.
++"""
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from typing import Any
++
++import httpx
++from dotenv import load_dotenv
++
++MAX_API_BASE = "https://platform-api2.max.ru"
++
++
++def _get(client: httpx.Client, path: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
++    try:
++        response = client.get(path)
++    except httpx.RequestError:
++        # Exception messages and response bodies can contain sensitive data.
++        return {"status": "network_or_tls_error"}, None
++    summary: dict[str, Any] = {"http_status": response.status_code}
++    if response.status_code != 200:
++        summary["status"] = {
++            401: "unauthorized", 403: "forbidden", 404: "not_found",
++            429: "rate_limited",
++        }.get(response.status_code, "http_error")
++        return summary, None
++    try:
++        payload = response.json()
++    except ValueError:
++        summary["status"] = "invalid_response"
++        return summary, None
++    if not isinstance(payload, dict):
++        summary["status"] = "invalid_response"
++        return summary, None
++    summary["status"] = "ok"
++    return summary, payload
++
++
++def diagnose(
++    client: httpx.Client,
++    chat_id: int,
++    *,
++    expected_bot_id: int | None = None,
++    expected_webhook_url: str | None = None,
++) -> dict[str, Any]:
++    """Return an allowlisted summary; no names, messages, URLs or secrets."""
++    report: dict[str, Any] = {"read_only": True, "message_delivery_tested": False}
++    report["bot"], bot = _get(client, "/me")
++    if bot is None:
++        return report
++    if bot.get("is_bot") is not True or not isinstance(bot.get("user_id"), int):
++        report["bot"]["status"] = "invalid_response"
++        return report
++    if expected_bot_id is not None:
++        report["bot"]["matches_expected"] = bot["user_id"] == expected_bot_id
++        if not report["bot"]["matches_expected"]:
++            report["bot"]["status"] = "wrong_bot"
++            return report
++
++    report["chat"], chat = _get(client, f"/chats/{chat_id}")
++    if chat is not None:
++        chat_status = chat.get("status")
++        chat_type = chat.get("type")
++        if chat.get("chat_id") != chat_id or chat_status not in {"active", "removed", "left", "closed"} or chat_type not in {"chat", "channel", "dialog"}:
++            report["chat"]["status"] = "invalid_response"
++        else:
++            report["chat"]["active"] = chat_status == "active"
++            report["chat"]["type"] = chat_type
++            if chat_status != "active":
++                report["chat"]["status"] = "inactive"
++
++    report["membership"], member = _get(client, f"/chats/{chat_id}/members/me")
++    if member is not None:
++        permissions = member.get("permissions")
++        if member.get("user_id") != bot["user_id"] or (permissions is not None and not isinstance(permissions, list)):
++            report["membership"]["status"] = "invalid_response"
++        else:
++            report["membership"]["is_admin"] = member.get("is_admin") is True
++            report["membership"]["permissions_reported"] = permissions is not None
++            report["membership"]["write_permission_reported"] = any(
++                p in (permissions or []) for p in ("write", "post_edit_delete_message")
++            )
++            # Ordinary chat members may have no permissions field and still send.
++            # A read-only check cannot prove a POST /messages would succeed.
++
++    report["subscriptions"], data = _get(client, "/subscriptions")
++    if data is not None:
++        subscriptions = data.get("subscriptions")
++        if not isinstance(subscriptions, list) or not all(isinstance(s, dict) for s in subscriptions):
++            report["subscriptions"]["status"] = "invalid_response"
++        else:
++            report["subscriptions"]["count"] = len(subscriptions)
++            if expected_webhook_url:
++                matches = [s for s in subscriptions if s.get("url") == expected_webhook_url]
++                report["subscriptions"]["expected_url_found"] = bool(matches)
++                for event in ("message_created", "message_edited", "message_removed", "message_callback"):
++                    report["subscriptions"][event] = any(
++                        s.get("update_types") is None
++                        or isinstance(s.get("update_types"), list) and event in s["update_types"]
++                        for s in matches
++                    )
++    return report
++
++
++def main() -> int:
++    load_dotenv()
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--chat-id", type=int)
++    parser.add_argument("--expected-bot-id", type=int)
++    args = parser.parse_args()
++    token = os.getenv("MAX_BOT_TOKEN", "")
++    raw_chat_id = os.getenv("MAX_B2B_CHAT_ID", "")
++    try:
++        chat_id = args.chat_id if args.chat_id is not None else int(raw_chat_id)
++    except ValueError:
++        print(json.dumps({"status": "missing_or_invalid_chat_id", "read_only": True}))
++        return 2
++    if not token.strip():
++        print(json.dumps({"status": "missing_bot_token", "read_only": True}))
++        return 2
++    # Fixed official host and no redirects: credentials cannot be redirected.
++    with httpx.Client(
++        base_url=MAX_API_BASE, headers={"Authorization": token},
++        timeout=15, follow_redirects=False,
++    ) as client:
++        report = diagnose(
++            client, chat_id, expected_bot_id=args.expected_bot_id,
++            expected_webhook_url=os.getenv("MAX_WEBHOOK_URL") or None,
++        )
++    print(json.dumps(report, ensure_ascii=False, indent=2))
++    return 1 if any(
++        isinstance(value, dict) and value.get("status") != "ok"
++        for value in report.values()
++    ) else 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/test_max_acknowledgements.py b/tests/test_max_acknowledgements.py
+new file mode 100644
+index 0000000..d876cab
+--- /dev/null
++++ b/tests/test_max_acknowledgements.py
+@@ -0,0 +1,158 @@
++import os
++import threading
++from unittest.mock import MagicMock
++
++import httpx
++import pytest
++
++os.environ.setdefault("MAX_BOT_TOKEN", "test-token-placeholder")
++os.environ.setdefault("MAX_WEBHOOK_SECRET", "test-secret-ABC")
++os.environ.setdefault("MAX_CHAT_ID", "987654321")
++
++from webhook import av_rescue_client as integration
++from webhook.max_client import MaxAPIError
++
++
++@pytest.fixture
++def isolated_outbox(tmp_path, monkeypatch):
++    monkeypatch.setattr(integration.settings, "max_ack_queue_path", str(tmp_path / "ack.json"))
++    monkeypatch.setattr(integration.settings, "av_rescue_api_url", "https://example.com/sync")
++    monkeypatch.setattr(integration.settings, "av_rescue_api_key", "test-only-key")
++    monkeypatch.setattr(integration.settings, "max_chat_id", "987654321")
++    monkeypatch.setattr(integration.time, "time", lambda: 1000)
++    return tmp_path / "ack.json"
++
++
++def payload():
++    return {
++        "event": "upsert", "source_id": "max:987654321:mid.1",
++        "source_chat_id": "987654321", "source_message_id": "mid.1",
++    }
++
++
++def reply():
++    return {
++        "ok": True, "reply_required": True,
++        "reply_chat_id": "987654321", "reply_text": "Заявка принята системой",
++    }
++
++
++def test_site_retry_cannot_erase_failed_acknowledgement(isolated_outbox, monkeypatch):
++    client = MagicMock()
++    client.__enter__.return_value = client
++    client.post.side_effect = [
++        httpx.Response(200, json=reply()),
++        httpx.Response(200, json={"ok": True, "reply_required": False}),
++    ]
++    monkeypatch.setattr(integration.httpx, "Client", lambda **kwargs: client)
++    sender = MagicMock(side_effect=MaxAPIError(503))
++    monkeypatch.setattr(integration, "send_message", sender)
++
++    assert integration._post(payload()) is True
++    assert sender.call_count == 0  # saved before sending
++    assert integration.drain_order_acknowledgements() == 1
++    assert sender.call_count == 1  # no plain retry on a transient server error
++    assert integration.pending_ack_count() == 1
++    assert integration._post(payload()) is True
++    assert integration.pending_ack_count() == 1
++
++    sender.side_effect = None
++    monkeypatch.setattr(integration.time, "time", lambda: 1020)
++    assert integration.drain_order_acknowledgements() == 1
++    assert integration.pending_ack_count() == 0
++    assert sender.call_args.kwargs["reply_to_mid"] == "mid.1"
++    assert client.post.call_count == 2
++
++
++def test_duplicate_and_edit_do_not_resend_delivered_ack(isolated_outbox, monkeypatch):
++    sender = MagicMock()
++    monkeypatch.setattr(integration, "send_message", sender)
++    integration._enqueue_order_ack(reply(), payload())
++    integration._enqueue_order_ack(reply(), payload())
++    assert integration.pending_ack_count() == 1
++    assert integration.drain_order_acknowledgements() == 1
++    integration._enqueue_order_ack(reply(), {**payload(), "comment": "edited"})
++    assert integration.drain_order_acknowledgements() == 0
++    assert sender.call_count == 1
++    sent = integration._read_queue(isolated_outbox.with_name("ack.sent.json"))
++    assert "response_data" not in sent[0]
++
++
++def test_missing_reply_flag_does_not_invent_acceptance(isolated_outbox, monkeypatch, caplog):
++    sender = MagicMock()
++    monkeypatch.setattr(integration, "send_message", sender)
++    with caplog.at_level("INFO"):
++        integration._enqueue_order_ack({"ok": True}, payload())
++    assert integration.pending_ack_count() == 0
++    assert "flag_present=False" in caplog.text
++    sender.assert_not_called()
++
++
++@pytest.mark.parametrize("changes", [
++    {"reply_chat_id": "111"}, {"reply_text": ""},
++])
++def test_invalid_reply_is_quarantined_not_silently_lost(isolated_outbox, monkeypatch, changes):
++    sender = MagicMock()
++    monkeypatch.setattr(integration, "send_message", sender)
++    monkeypatch.setattr(integration, "MAX_DELIVERY_ATTEMPTS", 1)
++    integration._enqueue_order_ack({**reply(), **changes}, payload())
++    integration.drain_order_acknowledgements()
++    sender.assert_not_called()
++    assert integration.pending_ack_count() == 0
++    dead = integration._read_queue(isolated_outbox.with_name("ack.dead.json"))
++    assert dead[0]["response_data"]["reply_required"] is True
++
++
++def test_invalid_reply_link_falls_back_to_plain_message(isolated_outbox, monkeypatch):
++    sender = MagicMock(side_effect=[MaxAPIError(404), None])
++    monkeypatch.setattr(integration, "send_message", sender)
++    integration._enqueue_order_ack(reply(), payload())
++    integration.drain_order_acknowledgements()
++    assert sender.call_count == 2
++    assert sender.call_args_list[0].kwargs == {"reply_to_mid": "mid.1"}
++    assert sender.call_args_list[1].kwargs == {}
++    assert integration.pending_ack_count() == 0
++
++
++def test_network_timeout_retains_ack_for_a_later_worker_cycle(isolated_outbox, monkeypatch):
++    sender = MagicMock(side_effect=httpx.ReadTimeout("synthetic timeout"))
++    monkeypatch.setattr(integration, "send_message", sender)
++    integration._enqueue_order_ack(reply(), payload())
++    integration.drain_order_acknowledgements()
++    assert sender.call_count == 1
++    row = integration._read_queue(isolated_outbox)[0]
++    assert row["response_data"]["reply_text"] == reply()["reply_text"]
++    assert row["attempts"] == 1
++    assert row["next_attempt_at"] > 1000
++
++
++def test_destination_title_is_separate_from_address():
++    text = "Куда: CIDR | FIT ЮНЫХ ЛЕНИНЦЕВ (ПОДОЛЬСК, ЮНЫХ ЛЕНИНЦЕВ ПР-КТ, 11)"
++    assert integration._split_destination_field(text, text) == (
++        "CIDR | FIT ЮНЫХ ЛЕНИНЦЕВ", "ПОДОЛЬСК, ЮНЫХ ЛЕНИНЦЕВ ПР-КТ, 11",
++    )
++
++
++def test_unstructured_destination_keeps_existing_fallback():
++    assert integration._split_destination_field("Куда: Тестовая улица", "Существующий адрес") == (
++        None, "Существующий адрес",
++    )
++
++
++def test_inbox_worker_retries_ack_when_no_new_messages(monkeypatch):
++    from webhook import event_inbox
++    stopped = threading.Event()
++    ran = threading.Event()
++    monkeypatch.setattr(event_inbox, "_stop_event", stopped)
++    monkeypatch.setattr(event_inbox, "_worker", None)
++    monkeypatch.setattr(event_inbox, "drain", lambda processor: 0)
++
++    def maintenance():
++        ran.set()
++        stopped.set()
++
++    event_inbox.start_worker(lambda payload: None, maintenance=maintenance)
++    try:
++        assert ran.wait(2)
++    finally:
++        event_inbox.stop_worker()
+diff --git a/tests/test_max_diagnostics.py b/tests/test_max_diagnostics.py
+new file mode 100644
+index 0000000..b91da94
+--- /dev/null
++++ b/tests/test_max_diagnostics.py
+@@ -0,0 +1,97 @@
++import json
++
++import httpx
++import pytest
++
++from scripts.diagnose_max import diagnose
++
++
++def mock_client(overrides=None):
++    responses = {
++        "/me": (200, {"user_id": 1, "is_bot": True, "first_name": "PRIVATE_NAME"}),
++        "/chats/-2": (200, {"chat_id": -2, "type": "chat", "status": "active", "title": "PRIVATE_CHAT"}),
++        "/chats/-2/members/me": (200, {"user_id": 1, "is_admin": False}),
++        "/subscriptions": (200, {"subscriptions": [{
++            "url": "https://example.com/webhook?key=PRIVATE_URL_KEY",
++            "update_types": ["message_created"], "secret": "PRIVATE_SECRET",
++        }]}),
++    }
++    responses.update(overrides or {})
++    calls = []
++
++    def handler(request):
++        assert request.method == "GET"
++        assert request.headers["Authorization"] == "PRIVATE_TOKEN"
++        calls.append(request.url.path)
++        status, data = responses[request.url.path]
++        return httpx.Response(status, json=data)
++
++    return httpx.Client(
++        transport=httpx.MockTransport(handler), base_url="https://platform-api2.max.ru",
++        headers={"Authorization": "PRIVATE_TOKEN"},
++    ), calls
++
++
++def test_diagnostics_only_reads_and_excludes_sensitive_data():
++    client, calls = mock_client()
++    with client:
++        report = diagnose(client, -2, expected_bot_id=1, expected_webhook_url="https://example.com/webhook?key=PRIVATE_URL_KEY")
++    assert calls == ["/me", "/chats/-2", "/chats/-2/members/me", "/subscriptions"]
++    assert "PRIVATE" not in json.dumps(report)
++    assert report["message_delivery_tested"] is False
++    assert report["membership"]["permissions_reported"] is False
++    assert report["membership"]["status"] == "ok"
++    assert report["subscriptions"]["message_created"] is True
++    assert report["subscriptions"]["message_edited"] is False
++
++
++def test_invalid_token_stops_requests():
++    client, calls = mock_client({"/me": (401, {"message": "PRIVATE_RESPONSE"})})
++    with client:
++        report = diagnose(client, -2)
++    assert calls == ["/me"]
++    assert report["bot"]["status"] == "unauthorized"
++    assert "PRIVATE" not in json.dumps(report)
++
++
++def test_wrong_bot_stops_before_chat_queries():
++    client, calls = mock_client()
++    with client:
++        report = diagnose(client, -2, expected_bot_id=999)
++    assert calls == ["/me"]
++    assert report["bot"]["status"] == "wrong_bot"
++
++
++@pytest.mark.parametrize("status, expected", [(403, "forbidden"), (404, "not_found"), (429, "rate_limited"), (500, "http_error"), (302, "http_error")])
++def test_chat_access_errors_are_explicit(status, expected):
++    client, _ = mock_client({"/chats/-2": (status, {"message": "PRIVATE_RESPONSE"})})
++    with client:
++        report = diagnose(client, -2)
++    assert report["chat"]["status"] == expected
++    assert "PRIVATE" not in json.dumps(report)
++
++
++def test_removed_bot_is_not_reported_as_active():
++    client, _ = mock_client({"/chats/-2": (200, {"chat_id": -2, "type": "chat", "status": "removed"})})
++    with client:
++        report = diagnose(client, -2)
++    assert report["chat"]["status"] == "inactive"
++    assert report["chat"]["active"] is False
++
++
++def test_empty_subscriptions_do_not_imply_outgoing_message_failure():
++    client, _ = mock_client({"/subscriptions": (200, {"subscriptions": []})})
++    with client:
++        report = diagnose(client, -2)
++    assert report["subscriptions"]["count"] == 0
++    assert report["subscriptions"]["status"] == "ok"
++    assert report["message_delivery_tested"] is False
++
++
++def test_network_exception_is_redacted():
++    def handler(request):
++        raise httpx.ConnectError("PRIVATE_TLS_DETAIL", request=request)
++    with httpx.Client(transport=httpx.MockTransport(handler), base_url="https://platform-api2.max.ru") as client:
++        report = diagnose(client, -2)
++    assert report["bot"]["status"] == "network_or_tls_error"
++    assert "PRIVATE" not in json.dumps(report)

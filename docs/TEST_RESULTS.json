@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-10",
+  "main_base": "cf4667bec55494320032740c3fca937e1905c3a8",
+  "excel_base": "beaa88360a1e58764d60b4de006c1e5dac03a9ed",
+  "python_main_passed": 51,
+  "python_excel_passed": 63,
+  "php_finance_fixture_checks": 25,
+  "php_syntax_files": 7,
+  "php_runtime": "8.4.24 CLI isolated Debian package",
+  "production_modified": false,
+  "paid_api_calls": 0,
+  "live_key_rotations": 0,
+  "real_backup_restore_verified": false,
+  "server_file_reconciliation_completed": false,
+  "limitations": [
+    "PHP server version unknown",
+    "Full partner API and site dependency sources unavailable",
+    "SQLite pilot not production adapter",
+    "No live MAX/bank/mail calls",
+    "Python deprecation warnings"
+  ]
+}

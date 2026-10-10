@@ -1,0 +1,47 @@
+{
+  "format": 1,
+  "date": "2026-10-10",
+  "repository": "JAAXCOB/vladislaw",
+  "patches": [
+    {
+      "name": "main",
+      "base_sha": "cf4667bec55494320032740c3fca937e1905c3a8",
+      "file": "patches/main-candidate.patch",
+      "sha256": "3a52b0d571207684f96931ec09a64af8961ef122d8c3e592c01118ef610915ba",
+      "bytes": 52827,
+      "apply_check": true,
+      "apply_option": "--unidiff-zero",
+      "candidate_only": true
+    },
+    {
+      "name": "excel-bot",
+      "base_sha": "beaa88360a1e58764d60b4de006c1e5dac03a9ed",
+      "file": "patches/excel-bot-candidate.patch",
+      "sha256": "6ac9516f429fac78ee6cc73b7adceeb6fb7d451cd46838cd8dd9362db8ffdcf8",
+      "bytes": 28667,
+      "apply_check": true,
+      "apply_option": "--unidiff-zero",
+      "candidate_only": true
+    }
+  ],
+  "original_local_checkpoints": [
+    {
+      "name": "main",
+      "bytes": 177704,
+      "sha256": "62061c6a40f3a6feb12476d630423e1ce5024e2564f8ec692fff652684f9d009",
+      "included": false,
+      "reason": "Original local checkpoint; portable candidate excludes docs and unrelated context"
+    },
+    {
+      "name": "excel-bot",
+      "bytes": 33199,
+      "sha256": "2575f6d2dd91173943febc86220bebf250368dae2a85ec53c9fdf8fc3cad6ba0",
+      "included": false,
+      "reason": "Original local checkpoint; portable candidate excludes docs and unrelated context"
+    }
+  ],
+  "production_modified": false,
+  "paid_api_calls": 0,
+  "live_rotation_performed": false,
+  "tests": "TEST_RESULTS.json"
+}
