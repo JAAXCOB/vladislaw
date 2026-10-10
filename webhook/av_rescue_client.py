@@ -43,13 +43,29 @@ def _send_order_ack(response_data: dict[str, Any], payload: dict[str, Any]) -> N
         return
 
     reply_to_mid = str(payload.get("source_message_id") or "").strip() or None
-    send_message(
-        chat_id,
-        text,
-        settings.max_bot_token,
-        settings.MAX_API_BASE,
-        reply_to_mid=reply_to_mid,
-    )
+    try:
+        send_message(
+            chat_id,
+            text,
+            settings.max_bot_token,
+            settings.MAX_API_BASE,
+            reply_to_mid=reply_to_mid,
+        )
+    except RuntimeError:
+        if not reply_to_mid:
+            raise
+        log.warning(
+            "MAX rejected an acknowledgement reply; retrying as a plain chat message "
+            "| source_id=%s",
+            payload.get("source_id"),
+            exc_info=True,
+        )
+        send_message(
+            chat_id,
+            text,
+            settings.max_bot_token,
+            settings.MAX_API_BASE,
+        )
     log.info(
         "New order acknowledged in MAX | source_id=%s | chat_id=%s",
         payload.get("source_id"),
