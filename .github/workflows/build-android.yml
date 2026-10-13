@@ -118,8 +118,11 @@ jobs:
           python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" \
             > build/controller/PYTHON_VERSION
           tar -C build/controller -czf "build/avr-ai-controller-${release_id}.tar.gz" .
-          sha256sum "build/avr-ai-controller-${release_id}.tar.gz" \
-            > "build/avr-ai-controller-${release_id}.tar.gz.sha256"
+          (
+            cd build
+            sha256sum "avr-ai-controller-${release_id}.tar.gz" \
+              > "avr-ai-controller-${release_id}.tar.gz.sha256"
+          )
           printf 'RELEASE_ID=%s\n' "$release_id" >> "$GITHUB_ENV"
 
       - name: Upload verified artifact
