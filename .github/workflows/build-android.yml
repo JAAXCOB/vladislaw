@@ -109,7 +109,7 @@ jobs:
             --only-binary=:all: \
             --dest build/controller/wheelhouse \
             -r requirements-ai-controller.txt
-          tar --exclude='__pycache__' --exclude='*.py[cod]' \\
+          tar --exclude='__pycache__' --exclude='*.py[cod]' \
             -cf - ai_controller | tar -C build/controller -xf -
           cp requirements-ai-controller.txt build/controller/
           mkdir -p build/controller/ops/systemd build/controller/docs
