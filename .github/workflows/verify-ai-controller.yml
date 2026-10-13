@@ -70,7 +70,9 @@ jobs:
             --only-binary=:all: \
             --dest build/controller/wheelhouse \
             -r requirements-ai-controller.txt
-          cp -a ai_controller requirements-ai-controller.txt build/controller/
+          tar --exclude='__pycache__' --exclude='*.py[cod]' \
+            -cf - ai_controller | tar -C build/controller -xf -
+          cp requirements-ai-controller.txt build/controller/
           mkdir -p build/controller/ops/systemd build/controller/docs
           cp ops/systemd/avr-ai-controller.service build/controller/ops/systemd/
           cp docs/AVR_AI_CONTROLLER_INSTALL.md build/controller/docs/
