@@ -36,8 +36,44 @@ function av_mobile_success($login,$type,$id,$profile,$roles=array(),$activeRole=
     ));
 }
 
+/*
+ * Older production accounts can have two records created at different times:
+ * a web user and an already approved driver.  Before the unified-account
+ * migration those records were not always connected by user_id.  The website
+ * can still authenticate the web record, while the Driver app used to reject
+ * it as a client-only account.  Resolve exactly one approved legacy driver by
+ * the same login/email, but never take over a record linked to another user.
+ */
+function av_mobile_legacy_worker_for_user($user,$login){
+    $userId=(string)($user['id']??'');
+    $identities=array();
+    foreach(array($login,$user['login']??'',$user['email']??'') as $value){
+        $value=mb_strtolower(trim((string)$value),'UTF-8');
+        if($value!=='')$identities[$value]=true;
+    }
+    if(!$identities)return null;
+
+    $matches=array();
+    foreach(av_read_workers() as $worker){
+        $linkedUserId=(string)($worker['user_id']??'');
+        if($linkedUserId!==''&&$linkedUserId!==$userId)continue;
+        $matched=false;
+        foreach(array($worker['login']??'',$worker['email']??'') as $value){
+            $value=mb_strtolower(trim((string)$value),'UTF-8');
+            if($value!==''&&isset($identities[$value])){$matched=true;break;}
+        }
+        if($matched)$matches[]=$worker;
+    }
+    return count($matches)===1?$matches[0]:null;
+}
+
 /* 1. Главный администратор — тот же логин/пароль, что на сайте */
-if($allowDriver && hash_equals(AV_SUPERADMIN_LOGIN,$login) && hash_equals(AV_SUPERADMIN_PASSWORD_SHA256,hash('sha256',$pass))){
+$ownerHash=defined('AV_SUPERADMIN_PASSWORD_HASH')?(string)AV_SUPERADMIN_PASSWORD_HASH:'';
+$ownerLegacy=defined('AV_SUPERADMIN_LEGACY_DIGEST')?(string)AV_SUPERADMIN_LEGACY_DIGEST:(defined('AV_SUPERADMIN_PASSWORD_SHA256')?(string)AV_SUPERADMIN_PASSWORD_SHA256:'');
+$modernOwnerMatch=$ownerHash!==''&&password_verify($pass,$ownerHash);
+$legacyOwnerMatch=$ownerLegacy!==''&&hash_equals($ownerLegacy,hash('sha256',$pass));
+if($allowDriver && hash_equals(AV_SUPERADMIN_LOGIN,$login) && ($modernOwnerMatch||$legacyOwnerMatch)){
+    if(!$modernOwnerMatch&&$legacyOwnerMatch&&function_exists('av_migrate_static_password'))av_migrate_static_password('AV_SUPERADMIN_PASSWORD_HASH',$pass);
     av_mobile_success(
         $login,'superadmin','SUPERADMIN',
         array('id'=>'SUPERADMIN','name'=>'Главный администратор','phone'=>'','login'=>AV_SUPERADMIN_LOGIN),
@@ -86,9 +122,21 @@ foreach(av_read_users() as $u){
         if(!av_verification_complete($u))av_json_response(array('ok'=>false,'error'=>'Подтвердите почту','verification_required'=>true,'account_type'=>'user','id'=>$u['id'],'verification_token'=>$u['verification_token']??'','next_channel'=>av_verification_next_channel($u)),403);
 
         $w=av_worker_by_user_id($u['id']??'');
+        $legacyWorker=false;
+        if(!$w&&$appMode==='driver'){
+            $w=av_mobile_legacy_worker_for_user($u,$login);
+            $legacyWorker=$w!==null;
+        }
         $staffRole=!empty($u['staff_disabled'])?null:($u['staff_role']??null);
         if($appMode==='driver'&&!$w&&!$staffRole)av_json_response(array('ok'=>false,'error'=>'Этот аккаунт предназначен для приложения AV Rescue'),403);
         if($appMode==='driver'&&$w&&empty($w['approved'])){$rejected=(($w['review_status']??'')==='rejected');$message=$rejected?'Регистрация отклонена. Причина: '.($w['rejection_reason']??'Исправьте данные анкеты.').' Войдите на сайт AV Rescue и отправьте исправления из профиля.':'Анкета исполнителя проверяется. Доступ к заказам откроется после подтверждения администратором.';av_json_response(array('ok'=>false,'error'=>$message,'moderation_status'=>$w['review_status']??'review','rejection_reason'=>$w['rejection_reason']??''),403);}
+        if($appMode==='driver'&&$legacyWorker){
+            av_mobile_success(
+                $login,'executor',(string)$w['id'],
+                array('id'=>$w['id'],'name'=>$w['name']??$u['name']??'','phone'=>$w['phone']??$u['phone']??'','login'=>$w['login']??$w['email']??$u['login']??''),
+                array('client'=>true,'executor'=>true,'staff_role'=>null,'b2b'=>!empty($u['b2b_role']))
+            );
+        }
         av_mobile_success(
             $login,'user',(string)$u['id'],
             array(
