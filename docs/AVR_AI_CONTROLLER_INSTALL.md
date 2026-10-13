@@ -116,9 +116,9 @@ chown -R root:avrai "$release"
 chmod -R u=rwX,g=rX,o= "$release"
 
 systemd-run --wait --pipe --collect --uid=avrai \
-  --working-directory=/opt/vladislaw/ai-controller/current \
+  --working-directory="$release" \
   --property=EnvironmentFile=/opt/vladislaw/.env.ai-controller \
-  /opt/vladislaw/ai-controller/current/.venv/bin/python -c \
+  "$release/.venv/bin/python" -c \
   "from ai_controller.config import ControllerSettings; ControllerSettings(); print('config ok')"
 ```
 
@@ -133,6 +133,8 @@ Activation is a second server-changing phase and requires a fresh approval. Pres
 the previous `current` link, if one exists, before switching only the controller:
 
 ```bash
+release=/opt/vladislaw/ai-controller/releases/<commit>
+test "$(cat "$release/RELEASE_ID")" = "<commit>"
 readlink -f /opt/vladislaw/ai-controller/current || true
 ln -sfn "$release" /opt/vladislaw/ai-controller/current.next
 mv -Tf /opt/vladislaw/ai-controller/current.next /opt/vladislaw/ai-controller/current
@@ -204,3 +206,4 @@ Keep `/opt/vladislaw/data/ai-controller/audit.jsonl` for investigation and reten
 Removing the unit does not require restoring Excel, reverting orders, changing the
 MAX webhook, or rolling back the website. Delete the controller state only under a
 separate approved retention decision.
+
