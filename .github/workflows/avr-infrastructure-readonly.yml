@@ -161,4 +161,52 @@ jobs:
               emit('completed',True)
           except Exception as exc:
               emit('stopped',type(exc).__name__);raise SystemExit(1)
+          import ast, json, re, subprocess, shutil
+          from pathlib import Path
+          
+          def emit(k,v): print('AVR_EXTRA '+json.dumps({'key':k,'value':v},ensure_ascii=False),flush=True)
+          def run(args):
+              try:
+                  p=subprocess.run(args,capture_output=True,text=True,timeout=8)
+                  return p.returncode,p.stdout[:1048576]
+              except (OSError,subprocess.TimeoutExpired):return -1,''
+          
+          code,out=run(['docker','ps','--format','{{.Names}}\t{{.Image}}'])
+          emit('docker_workloads',{'exit':code,'items':[{'name':p[0],'image':p[1]} for line in out.splitlines() if len(p:=line.split('\t'))==2 and all(re.fullmatch(r'[A-Za-z0-9_./:@-]+',v) for v in p)][:10]})
+          code,out=run(['systemctl','list-units','--type=service','--all','--no-legend','--no-pager'])
+          names=[]
+          for line in out.splitlines():
+              m=re.search(r'\b([A-Za-z0-9@_.:-]+\.service)\b',line)
+              if m and re.search(r'max|excel|evac|vladislaw|payroll',m[1],re.I):names.append(m[1])
+          emit('related_service_names',{'exit':code,'names':names[:30]})
+          for filename in ('webhook/main.py','scripts/daily_import.py'):
+              path=Path('/opt/vladislaw')/filename
+              if not path.is_file():continue
+              try: tree=ast.parse(path.read_text())
+              except (OSError,SyntaxError):continue
+              schedules=[]
+              for node in ast.walk(tree):
+                  if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr in ('add_job','run_daily','run_repeating'):
+                      result={'call':node.func.attr,'line':node.lineno}
+                      for kw in node.keywords:
+                          if kw.arg not in ('trigger','hour','minute','second','timezone','seconds','minutes','hours','interval'):continue
+                          try:
+                              value=ast.literal_eval(kw.value)
+                              if isinstance(value,(int,float)) or isinstance(value,str) and re.fullmatch(r'[A-Za-z/_+-]{1,40}',value):result[kw.arg]=value
+                          except (ValueError,TypeError):result[kw.arg]='dynamic'
+                      schedules.append(result)
+              emit('source_schedule:'+filename,schedules)
+          if shutil.which('unshare'):
+              code,_=run(['unshare','--mount','--','/usr/bin/true'])
+              emit('mount_namespace_probe',{'exit':code,'isolated_process_only':True})
+          else:emit('mount_namespace_probe','binary_unavailable')
+          for base in ('/sys/fs/cgroup/cpu','/sys/fs/cgroup/cpu,cpuacct'):
+              result={}
+              for filename in ('cpu.cfs_quota_us','cpu.cfs_period_us'):
+                  try:
+                      value=(Path(base)/filename).read_text().strip()
+                      if re.fullmatch(r'-?\d+',value):result[filename]=value
+                  except OSError:pass
+              if result:emit('cpu_controller_root',result)
+          emit('completed',True)
           PY
