@@ -1,0 +1,93 @@
+name: AVR payroll driver maintenance
+on:
+  push:
+    branches: [maintenance/gennady-payroll-20261013]
+    paths: [.github/workflows/avr-payroll-driver-maintenance.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: deploy-max-bot-production
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      SERVER_HOST: ${{ secrets.SERVER_HOST }}
+      SERVER_USER: ${{ secrets.SERVER_USER }}
+      SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+    steps:
+      - name: Inspect configured payroll without changing server
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          test "$SERVER_HOST" = '130.49.173.150'
+          test -n "$SERVER_USER"
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          PINFILE="$RUNNER_TEMP/avr-ihc-known-hosts"
+          ssh-keyscan -T 15 -p 22 -t ed25519 130.49.173.150 2>/dev/null > "$PINFILE"
+          test "$(ssh-keygen -lf "$PINFILE" -E sha256 | awk '{print $2}')" = 'SHA256:C5LClwcRJcnK0YoUDuLAfnkSMJM1zC3KTPtiVMBvN6s'
+          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$PINFILE" -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            "$SERVER_USER@130.49.173.150" 'cd /opt/vladislaw && .venv/bin/python -B -' <<'PY'
+          import hashlib, json, os, re, subprocess
+          from pathlib import Path
+          import openpyxl
+          ROOT = Path('/opt/vladislaw')
+          KEYS = {'PAYROLL_FILE_PATH', 'EXCEL_FILE_PATH'}
+          def env_paths(text):
+              out = {}
+              for line in text.splitlines():
+                  match = re.match(r'^\s*(?:export\s+)?([A-Z_]+)\s*=\s*(.*?)\s*$', line)
+                  if match and match[1] in KEYS:
+                      out[match[1]] = match[2].strip().strip('\"\'')
+              return out
+          paths = env_paths((ROOT / '.env').read_text())
+          live = {}
+          try:
+              result = subprocess.run(['systemctl', 'show', 'max-webhook.service', '--property=MainPID', '--value'], capture_output=True, text=True, timeout=5)
+              pid = int(result.stdout.strip())
+              if pid > 0:
+                  for item in Path(f'/proc/{pid}/environ').read_bytes().split(b'\0'):
+                      key, sep, value = item.partition(b'=')
+                      if sep and key.decode(errors='replace') in KEYS:
+                          live[key.decode()] = value.decode()
+          except (OSError, ValueError, subprocess.TimeoutExpired):
+              pass
+          paths.update(live)
+          candidates = {}
+          for key, value in paths.items():
+              if value:
+                  path = Path(value)
+                  if not path.is_absolute(): path = ROOT / path
+                  candidates[str(path.resolve())] = key + ('_process' if key in live else '_env')
+          candidates.setdefault(str(ROOT / 'data/excel/payroll.xlsx'), 'unconfirmed_default')
+          print('CONFIGURED_PATHS', json.dumps({k:v for k,v in candidates.items()}, ensure_ascii=False))
+          markers = [('Bodrov', {'бодров','максим'}), ('Gennady', {'геннадий','щурихин'})]
+          for filename, source in candidates.items():
+              path = Path(filename)
+              if not path.is_file() or path.suffix.lower() != '.xlsx':
+                  print('UNAVAILABLE', source); continue
+              if path.stat().st_size > 32 * 1024 * 1024:
+                  print('TOO_LARGE', source); continue
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              print('WORKBOOK', json.dumps({'path':filename,'source':source,'bytes':path.stat().st_size,'sha256':digest},ensure_ascii=False))
+              try:
+                  wb = openpyxl.load_workbook(path, read_only=True, data_only=False)
+                  for ws in wb.worksheets:
+                      if ws.title.startswith('_'): continue
+                      found = []
+                      for row in ws.iter_rows(max_row=32, max_col=min(ws.max_column,64)):
+                          for c in row:
+                              if isinstance(c.value,str) and not c.value.startswith('='):
+                                  words = set(re.findall(r'[а-яё]+',c.value.casefold()))
+                                  for label, wanted in markers:
+                                      if wanted.issubset(words): found.append({'driver':label,'cell':c.coordinate})
+                      print('SHEET',json.dumps({'name':ws.title,'rows':ws.max_row,'columns':ws.max_column,'markers':found},ensure_ascii=False))
+                  wb.close()
+              except Exception as exc:
+                  print('READ_FAILED',type(exc).__name__)
+          PY
