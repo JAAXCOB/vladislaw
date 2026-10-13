@@ -25,7 +25,7 @@ jobs:
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - name: Unpack Android projects
         run: |
-          unzip -q android/AVR_Driver_Source_2.3.6.zip -d android
+          unzip -q android/AVR_Driver_Source_2.4.0.zip -d android
           unzip -q android/AV_Rescue_Source_1.0.2.zip -d android
       - name: Build AVR Driver
         working-directory: android/AVRescueAndroid
@@ -38,9 +38,9 @@ jobs:
       - name: Collect APK files
         run: |
           mkdir -p artifacts
-          cp android/AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AVR_Driver_2.3.6.apk
+          cp android/AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AVR_Driver_2.4.0.apk
           cp android/AVRescueClientAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AV_Rescue_Client_1.0.2.apk
-          cp android/AVRescueAndroid/app/build/outputs/bundle/debug/app-debug.aab artifacts/AVR_Driver_2.3.6-debug.aab
+          cp android/AVRescueAndroid/app/build/outputs/bundle/debug/app-debug.aab artifacts/AVR_Driver_2.4.0-debug.aab
           cp android/AVRescueClientAndroid/app/build/outputs/bundle/debug/app-debug.aab artifacts/AV_Rescue_Client_1.0.2-debug.aab
       - uses: actions/upload-artifact@v4
         with:

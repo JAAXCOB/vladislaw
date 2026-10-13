@@ -23,8 +23,8 @@ def test_own_fleet_feed_has_no_radius_filter_and_keeps_distance_sorting():
     assert "if($ad!==null&&$bd!==null&&$ad!=$bd)return $ad<=>$bd;" in source
 
 
-def test_driver_236_archive_contains_required_ux_and_auth_contract():
-    archive = ROOT / "android/AVR_Driver_Source_2.3.6.zip"
+def test_driver_240_archive_contains_required_ux_and_auth_contract():
+    archive = ROOT / "android/AVR_Driver_Source_2.4.0.zip"
     assert archive.is_file()
     with ZipFile(archive) as zipped:
         dashboard = zipped.read(
@@ -35,6 +35,9 @@ def test_driver_236_archive_contains_required_ux_and_auth_contract():
         ).decode("utf-8")
         detail = zipped.read(
             "AVRescueAndroid/app/src/main/java/ru/avrescue/app/OrderDetailActivity.java"
+        ).decode("utf-8")
+        ui = zipped.read(
+            "AVRescueAndroid/app/src/main/java/ru/avrescue/app/Ui.java"
         ).decode("utf-8")
         build = zipped.read("AVRescueAndroid/app/build.gradle").decode("utf-8")
 
@@ -50,11 +53,18 @@ def test_driver_236_archive_contains_required_ux_and_auth_contract():
     assert "if(toDestination)openDestinationMap(lat,lng,navAddress)" in detail
     assert '"yandexmaps://maps.yandex.ru/?rtext=~"+Uri.encode(exact)' in dashboard
     assert '"yandexmaps://maps.yandex.ru/?rtext=~"+Uri.encode(exact)' in detail
+    assert "fixed bottom" not in detail.lower()
+    assert "setPrimaryAction" in detail
+    assert "Ui.workProgress" in detail
+    assert "Ui.routePoint" in detail
+    assert "primaryButton" in ui
+    assert "workProgress" in ui
+    assert "routePoint" in ui
     assert "Завершить заявку" in detail
-    assert "versionName '2.3.6'" in build
+    assert "versionName '2.4.0'" in build
 
 
-def test_workflow_builds_driver_236():
+def test_workflow_builds_driver_240():
     workflow = (ROOT / ".github/workflows/build-android.yml").read_text(encoding="utf-8")
-    assert "android/AVR_Driver_Source_2.3.6.zip" in workflow
-    assert "AVR_Driver_2.3.6.apk" in workflow
+    assert "android/AVR_Driver_Source_2.4.0.zip" in workflow
+    assert "AVR_Driver_2.4.0.apk" in workflow
