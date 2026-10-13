@@ -1,0 +1,164 @@
+name: AVR infrastructure read-only diagnosis
+on:
+  push:
+    branches: [maintenance/gennady-payroll-20261013]
+    paths: [.github/workflows/avr-infrastructure-readonly.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: deploy-max-bot-production
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      SERVER_HOST: ${{ secrets.SERVER_HOST }}
+      SERVER_USER: ${{ secrets.SERVER_USER }}
+      SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+    steps:
+      - name: Inspect resources services cron and backup metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          test "$SERVER_HOST" = '130.49.173.150'
+          test -n "$SERVER_USER"
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          PINFILE="$RUNNER_TEMP/avr-ihc-known-hosts"
+          ssh-keyscan -T 15 -p 22 -t ed25519 130.49.173.150 2>/dev/null > "$PINFILE"
+          test "$(ssh-keygen -lf "$PINFILE" -E sha256 | awk '{print $2}')" = 'SHA256:C5LClwcRJcnK0YoUDuLAfnkSMJM1zC3KTPtiVMBvN6s'
+          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$PINFILE" -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            "$SERVER_USER@130.49.173.150" 'cd /opt/vladislaw && .venv/bin/python -B -' <<'PY'
+          import json, os, re, time, subprocess, shutil
+          from pathlib import Path
+          from datetime import datetime, timezone
+          
+          ENV={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'}
+          PROPS=('LoadState','ActiveState','SubState','MainPID','User','MemoryCurrent','CPUUsageNSec','NRestarts','TasksCurrent','ControlGroup')
+          UNITS=('max-webhook.service','caddy.service','docker.service','cron.service')
+          
+          def emit(key,value):
+              print('AVR_DIAG '+json.dumps({'utc':datetime.now(timezone.utc).isoformat(),'key':key,'value':value},ensure_ascii=False),flush=True)
+          
+          def run(args):
+              try:
+                  p=subprocess.run(args,capture_output=True,text=True,timeout=8,env=ENV)
+                  return p.returncode,p.stdout[:1048576]
+              except (OSError,subprocess.TimeoutExpired):return -1,''
+          
+          def show(unit):
+              code,out=run(['systemctl','show',unit,'--property='+','.join(PROPS)])
+              pairs=dict(line.split('=',1) for line in out.splitlines() if '=' in line)
+              result={k:v for k,v in pairs.items() if k in PROPS and k not in ('User','ControlGroup') and re.fullmatch(r'[A-Za-z0-9_-]*',v)}
+              result['configured_root_or_default']=pairs.get('User') in ('','root') if 'User' in pairs else None
+              result['command_exit']=code
+              return result,pairs.get('ControlGroup','')
+          
+          def memory():
+              wanted={'MemTotal','MemAvailable','SwapTotal','SwapFree'}
+              return {line.split(':')[0]:int(line.split(':')[1].split()[0]) for line in Path('/proc/meminfo').read_text().splitlines() if line.split(':')[0] in wanted}
+          
+          def backup_meta(directory):
+              path=Path(directory); result={'exists':path.exists(),'readable':False}
+              total=0;items=[];truncated=False
+              if not path.is_dir():return result
+              todo=[(path,0)];count=0
+              try:
+                  while todo:
+                      p,depth=todo.pop()
+                      with os.scandir(p) as entries:
+                          for e in entries:
+                              count+=1
+                              if count>3000:truncated=True;todo.clear();break
+                              if e.is_symlink():continue
+                              if e.is_dir(follow_symlinks=False) and depth<2:todo.append((Path(e.path),depth+1))
+                              elif e.is_file(follow_symlinks=False):
+                                  st=e.stat(follow_symlinks=False);total+=st.st_size;items.append((st.st_mtime,st.st_size))
+                  result.update(readable=True,files=len(items),bytes=total,truncated=truncated,
+                    recent=[{'mtime_utc':datetime.fromtimestamp(t,timezone.utc).isoformat(),'bytes':b} for t,b in sorted(items,reverse=True)[:5]])
+              except OSError:result['incomplete']=True
+              return result
+          
+          def cron_summary(text,system=False):
+              rows=[]
+              for line in text.splitlines():
+                  line=line.strip()
+                  if not line or line.startswith('#') or re.match(r'^[A-Za-z_][A-Za-z0-9_]*\s*=',line):continue
+                  bits=line.split(); n=1 if line.startswith('@') else 5
+                  if len(bits)<=n:continue
+                  schedule=' '.join(bits[:n])
+                  if not re.fullmatch(r'[0-9A-Za-z@*/?,#LWC\s.-]+',schedule):continue
+                  tail=' '.join(bits[n+(1 if system else 0):]).casefold()
+                  kind='excel_or_bot' if any(k in tail for k in ('vladislaw','daily_import','excel','payroll','max-webhook')) else 'other'
+                  rows.append({'schedule':schedule,'category':kind})
+              return rows
+          
+          try:
+              osinfo=dict(line.split('=',1) for line in Path('/etc/os-release').read_text().splitlines() if '=' in line)
+              emit('platform',{'os':{k:osinfo.get(k,'').strip('"') for k in ('ID','VERSION_ID')},'kernel':os.uname().release,'logical_cpu':os.cpu_count()})
+              emit('memory_kib',memory())
+              emit('uptime_seconds',float(Path('/proc/uptime').read_text().split()[0]))
+              emit('loadavg',[float(x) for x in Path('/proc/loadavg').read_text().split()[:3]])
+              for p in ('/','/opt/vladislaw','/opt/backups'):
+                  try:
+                      s=os.statvfs(p);emit('disk:'+p,{'total_bytes':s.f_blocks*s.f_frsize,'available_bytes':s.f_bavail*s.f_frsize,'available_inodes':s.f_favail})
+                  except OSError:emit('disk:'+p,'unavailable')
+              code,out=run(['git','-C','/opt/vladislaw','rev-parse','HEAD'])
+              emit('deployed_sha',out.strip() if code==0 and re.fullmatch(r'[0-9a-f]{40,64}\s*',out) else 'unavailable')
+              groups={}
+              for p in Path('/proc').iterdir():
+                  if not p.name.isdigit():continue
+                  try:
+                      comm=(p/'comm').read_text().strip()
+                      cat='python_candidate' if comm.startswith('python') or comm=='uvicorn' else comm if comm in ('caddy','dockerd','containerd','cron') else None
+                      if not cat:continue
+                      st=(p/'stat').read_text().rsplit(')',1)[1].split()
+                      group=groups.setdefault(cat,{'count':0,'rss_bytes':0,'pids':[]})
+                      group['count']+=1;group['rss_bytes']+=int(st[21])*os.sysconf('SC_PAGE_SIZE');group['pids'].append(int(p.name))
+                  except (OSError,ValueError,IndexError):continue
+              emit('process_categories',groups)
+              for unit in UNITS:
+                  result,cgroup=show(unit);emit('unit:'+unit,result)
+                  if unit=='max-webhook.service' and cgroup.startswith('/') and '..' not in cgroup:
+                      pid=int(result.get('MainPID','0'))
+                      if pid:
+                          try:
+                              status=(Path('/proc')/str(pid)/'status').read_text()
+                              emit('bot_process_peak_kib',{m[1]:int(m[2]) for m in re.finditer(r'^(VmRSS|VmHWM|VmSwap):\s*(\d+)',status,re.M)})
+                          except OSError:pass
+                      for base in ('/sys/fs/cgroup','/sys/fs/cgroup/memory'):
+                          for filename in ('memory.current','memory.peak','memory.max','memory.max_usage_in_bytes','memory.limit_in_bytes','memory.failcnt'):
+                              p=Path(base)/cgroup.lstrip('/')/filename
+                              try:
+                                  value=p.read_text().strip()
+                                  if re.fullmatch(r'\d+|max',value):emit('cgroup:'+filename,value)
+                              except OSError:pass
+              emit('cgroups',{'unified':Path('/sys/fs/cgroup/cgroup.controllers').exists(),'controllers':Path('/sys/fs/cgroup/cgroup.controllers').read_text().split() if Path('/sys/fs/cgroup/cgroup.controllers').exists() else [],'proc_namespaces':Path('/proc/self/ns/mnt').exists()})
+              emit('docker_binary',bool(shutil.which('docker',path=ENV['PATH'])))
+              if shutil.which('docker',path=ENV['PATH']):
+                  code,out=run(['docker','ps','-a','--format','{{.State}}'])
+                  counts={}
+                  for state in out.splitlines():
+                      if state in ('created','restarting','running','removing','paused','exited','dead'):counts[state]=counts.get(state,0)+1
+                  emit('docker_container_states',{'exit':code,'counts':counts})
+              code,out=run(['crontab','-l']);emit('own_cron',cron_summary(out) if code==0 else 'unavailable_or_empty')
+              for p in [Path('/etc/crontab'),*list(Path('/etc/cron.d').glob('*'))[:50]]:
+                  if not p.is_file() or p.is_symlink():continue
+                  try:emit('system_cron_summary',cron_summary(p.read_text(),system=True))
+                  except OSError:pass
+              code,out=run(['systemctl','list-timers','--all','--no-legend','--no-pager'])
+              emit('timers',{'exit':code,'count':len(set(re.findall(r'\b[A-Za-z0-9@_.:-]+\.timer\b',out)))})
+              for p in ('/opt/backups','/opt/vladislaw/backups','/opt/vladislaw/data/backups'):
+                  emit('backup_metadata:'+p,backup_meta(p))
+              for i in range(3):
+                  result,_=show('max-webhook.service')
+                  emit('bot_resource_sample',{'index':i,'memory_kib':memory(),'unit':result})
+                  if i<2:time.sleep(10)
+              emit('completed',True)
+          except Exception as exc:
+              emit('stopped',type(exc).__name__);raise SystemExit(1)
+          PY
