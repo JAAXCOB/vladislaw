@@ -1,46 +1,130 @@
-name: Build AV Rescue Android apps
+name: Verify AVR AI controller (branch-only)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  verify-linux-and-package:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Check out dispatched revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android SDK 36
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
-      - name: Unpack Android projects
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify immutable revision
+        shell: bash
         run: |
-          unzip -q android/AVR_Driver_Source_2.3.4.zip -d android
-          unzip -q android/AV_Rescue_Source_1.0.2.zip -d android
-      - name: Build AVR Driver
-        working-directory: android/AVRescueAndroid
-        run: chmod +x gradlew && ./gradlew assembleDebug bundleDebug --no-daemon
-      - name: Build AV Rescue Client
-        working-directory: android/AVRescueClientAndroid
-        run: chmod +x gradlew && ./gradlew assembleDebug bundleDebug --no-daemon
-      - name: Check PHP syntax
-        run: find site/patches/9.0 -name '*.php' -print0 | xargs -0 -n1 php -l
-      - name: Collect APK files
-        run: |
-          mkdir -p artifacts
-          cp android/AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AVR_Driver_2.3.4.apk
-          cp android/AVRescueClientAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AV_Rescue_Client_1.0.2.apk
-          cp android/AVRescueAndroid/app/build/outputs/bundle/debug/app-debug.aab artifacts/AVR_Driver_2.3.4-debug.aab
-          cp android/AVRescueClientAndroid/app/build/outputs/bundle/debug/app-debug.aab artifacts/AV_Rescue_Client_1.0.2-debug.aab
-      - uses: actions/upload-artifact@v4
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          name: AV-Rescue-Android-APKs
-          path: artifacts/*
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-ai-controller.txt
+            requirements-ai-controller-test.txt
+
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -r requirements-ai-controller-test.txt
+          python -m pip install --disable-pip-version-check pip-audit==2.10.1
+
+      - name: Run Linux and asyncio tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q tests/test_ai_controller.py
+
+      - name: Audit runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip_audit -r requirements-ai-controller.txt --progress-spinner off
+
+      - name: Verify fail-closed configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from pydantic import ValidationError
+          from ai_controller.config import ControllerSettings
+
+          values = dict(
+              _env_file=None,
+              data_dir=Path("/tmp/avr-ai-controller-config-check"),
+              site_health_url="https://av-rescue.ru/health",
+              max_health_url="http://127.0.0.1:8000/health",
+              osrm_base_url="https://router.example.invalid",
+          )
+          try:
+              ControllerSettings(
+                  **values,
+                  audit_hmac_key="replace-with-at-least-32-random-characters",
+              )
+          except ValidationError:
+              pass
+          else:
+              raise SystemExit("example HMAC key was accepted")
+
+          settings = ControllerSettings(**values, audit_hmac_key="a" * 64)
+          assert settings.paid_api_enabled is False
+          assert settings.max_control_enabled is False
+          assert settings.yandex_mail_enabled is False
+          assert settings.gmail_enabled is False
+          print("fail-closed configuration: OK")
+          PY
+
+      - name: Verify the systemd unit
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin avrai
+          sudo install -d -o root -g root -m 0755 /opt/vladislaw/ai-controller/current/.venv/bin
+          sudo install -d -o avrai -g avrai -m 0700 /opt/vladislaw/data/ai-controller
+          sudo install -m 0755 /usr/bin/true /opt/vladislaw/ai-controller/current/.venv/bin/uvicorn
+          sudo install -o root -g avrai -m 0640 /dev/null /opt/vladislaw/.env.ai-controller
+          sudo systemd-analyze verify "$GITHUB_WORKSPACE/ops/systemd/avr-ai-controller.service"
+
+      - name: Build controller-only offline artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id="$(git rev-parse HEAD)"
+          mkdir -p build/controller/wheelhouse
+          python -m pip download --disable-pip-version-check \
+            --only-binary=:all: \
+            --dest build/controller/wheelhouse \
+            -r requirements-ai-controller.txt
+          cp -a ai_controller requirements-ai-controller.txt build/controller/
+          mkdir -p build/controller/ops/systemd build/controller/docs
+          cp ops/systemd/avr-ai-controller.service build/controller/ops/systemd/
+          cp docs/AVR_AI_CONTROLLER_INSTALL.md build/controller/docs/
+          cp .env.ai-controller.example build/controller/
+          printf '%s\n' "$release_id" > build/controller/RELEASE_ID
+          python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" \
+            > build/controller/PYTHON_VERSION
+          tar -C build/controller -czf "build/avr-ai-controller-${release_id}.tar.gz" .
+          sha256sum "build/avr-ai-controller-${release_id}.tar.gz" \
+            > "build/avr-ai-controller-${release_id}.tar.gz.sha256"
+          printf 'RELEASE_ID=%s\n' "$release_id" >> "$GITHUB_ENV"
+
+      - name: Upload verified artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: avr-ai-controller-${{ env.RELEASE_ID }}
+          path: |
+            build/avr-ai-controller-${{ env.RELEASE_ID }}.tar.gz
+            build/avr-ai-controller-${{ env.RELEASE_ID }}.tar.gz.sha256
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
