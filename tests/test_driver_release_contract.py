@@ -23,8 +23,8 @@ def test_own_fleet_feed_has_no_radius_filter_and_keeps_distance_sorting():
     assert "if($ad!==null&&$bd!==null&&$ad!=$bd)return $ad<=>$bd;" in source
 
 
-def test_driver_235_archive_contains_required_ux_and_auth_contract():
-    archive = ROOT / "android/AVR_Driver_Source_2.3.5.zip"
+def test_driver_236_archive_contains_required_ux_and_auth_contract():
+    archive = ROOT / "android/AVR_Driver_Source_2.3.6.zip"
     assert archive.is_file()
     with ZipFile(archive) as zipped:
         dashboard = zipped.read(
@@ -46,11 +46,15 @@ def test_driver_235_archive_contains_required_ux_and_auth_contract():
     assert "Маршрут к точке А" in detail
     assert "Я на месте" in detail
     assert "Маршрут к точке Б" in detail
+    assert "openDestinationMap(destinationLat,destinationLng,destination)" in dashboard
+    assert "if(toDestination)openDestinationMap(lat,lng,navAddress)" in detail
+    assert '"yandexmaps://maps.yandex.ru/?rtext=~"+Uri.encode(exact)' in dashboard
+    assert '"yandexmaps://maps.yandex.ru/?rtext=~"+Uri.encode(exact)' in detail
     assert "Завершить заявку" in detail
-    assert "versionName '2.3.5'" in build
+    assert "versionName '2.3.6'" in build
 
 
-def test_workflow_builds_driver_235():
+def test_workflow_builds_driver_236():
     workflow = (ROOT / ".github/workflows/build-android.yml").read_text(encoding="utf-8")
-    assert "android/AVR_Driver_Source_2.3.5.zip" in workflow
-    assert "AVR_Driver_2.3.5.apk" in workflow
+    assert "android/AVR_Driver_Source_2.3.6.zip" in workflow
+    assert "AVR_Driver_2.3.6.apk" in workflow
