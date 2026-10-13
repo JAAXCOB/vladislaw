@@ -2,6 +2,9 @@ name: Verify AVR AI controller (branch-only)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - verify/avr-ai-controller-20261013
 
 permissions:
   contents: read
