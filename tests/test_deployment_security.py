@@ -53,6 +53,7 @@ def test_deploy_workflow_has_no_password_or_business_data_mutation() -> None:
     assert "contents: read" in workflow
     assert "StrictHostKeyChecking=yes" in workflow
     assert "MAX_DEPLOY_SSH_PRIVATE_KEY" in workflow
+    assert 'printf \'%s\' "$SSH_PRIVATE_KEY" | base64 --decode' in workflow
     assert "environment: production-max" in workflow
     assert "Full 40-character commit SHA" in workflow
     assert "deploy_to_production" in workflow
