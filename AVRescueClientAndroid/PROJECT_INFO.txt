@@ -1,0 +1,30 @@
+AV Rescue Android 2.1.1.
+
+Native Android phone application, not a desktop application and not a WebView copy of the site.
+
+Implemented:
+- unified AV Rescue login via bearer token;
+- branded dark/red interface;
+- client/executor role-aware dashboard;
+- service area indicator;
+- native order creation;
+- GPS location;
+- native order details;
+- executor actions: accept, reject, en route, arrived, four vehicle photos, loading, transport and completion;
+- order history;
+- Russian Yandex Maps for pickup and destination;
+- live executor location and ETA tracking;
+- foreground online mode with background GPS, stationary-driver heartbeat and new-order polling;
+- loud looping order alert that stops after accept/reject;
+- server-synchronised five-minute acceptance countdown and automatic reassignment;
+- executor service categories and service-aware order matching;
+- client order cancellation;
+- cash/card commission ledger and rating flow;
+- logout;
+- adaptive AV Rescue launcher icon.
+
+Backend: https://av-rescue.ru
+Package: ru.avrescue.app
+Target SDK: 36
+Version: 2.1.1 (22)
+GLONASS: intentionally deferred to the next integration stage.

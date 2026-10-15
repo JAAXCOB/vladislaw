@@ -1,0 +1,11 @@
+<resources>
+    <color name="avr_bg">#08090A</color>
+    <color name="avr_panel">#111317</color>
+    <color name="avr_panel_alt">#171A1F</color>
+    <color name="avr_red">#ED111C</color>
+    <color name="avr_red_dark">#B90E16</color>
+    <color name="avr_text">#FFFFFF</color>
+    <color name="avr_muted">#AEB3BA</color>
+    <color name="avr_green">#35D07F</color>
+    <color name="avr_line">#30343A</color>
+</resources>

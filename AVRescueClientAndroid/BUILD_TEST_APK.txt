@@ -1,0 +1,20 @@
+AV RESCUE 2.1.1 TEST APK
+
+1. Open this AVRescueAndroid folder in Android Studio.
+2. Select JDK 17 for Gradle and wait for Gradle 8.9 sync.
+3. Build > Build App Bundle(s) / APK(s) > Build APK(s).
+4. Debug APK appears under app/build/outputs/apk/debug/app-debug.apk.
+5. Install it on an Android phone and test using the same AV Rescue login as the website.
+
+Before testing, upload the SERVER_PATCH files from the consolidated archive to the matching paths on av-rescue.ru. Keep the existing server config.php and data directory.
+
+Required checks:
+- give location and notification permissions;
+- put an executor online and minimize the app;
+- create each supported service type and verify only a matching executor receives it;
+- verify the 5:00 timer changes every second and moves the order after expiry;
+- accept an order and verify the alert stops immediately;
+- verify client cancellation and the complete status/photo/finance flow.
+
+The project deliberately does not contain signing passwords or bank/API secrets.
+For RuStore/Google Play we will later create a signed release AAB/APK and keep the signing key outside the public project archive.
