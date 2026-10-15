@@ -328,6 +328,9 @@ def main() -> None:
     # before rebuilding rows; B2B-only senders such as Ann and olega remain
     # deliberately unmatched and therefore never create payroll entries.
     ensure_employee_column(staged_payroll_path, "Бодров Максим", at=since_dt)
+    # Геннадий Щурихин is provisioned the same way: create his dedicated
+    # payroll column in the staged copy before any salary rows are rebuilt.
+    ensure_employee_column(staged_payroll_path, "Геннадий Щурихин", at=since_dt)
 
     for record in records:
         append_job(staged_report_path, record.job, record.timestamp_ms, record.text)

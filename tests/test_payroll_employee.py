@@ -76,6 +76,16 @@ def test_vadim_alias_matches_existing_payroll_column():
     assert _match_employee_column(sheet, employee_header("Вадим Новиков")) == 4
 
 
+def test_gennady_alias_matches_dedicated_payroll_column():
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["Дата", "VIN/Гос.номер ТС", "Услуга", "Геннадий Щурихин"])
+
+    assert _match_employee_column(sheet, employee_header("Гена")) == 4
+    assert _match_employee_column(sheet, employee_header("Щурихин Геннадий")) == 4
+    assert _match_employee_column(sheet, employee_header("Gennady Shchurikhin")) == 4
+
+
 def test_unmatched_driver_does_not_create_empty_payroll_row(tmp_path):
     payroll_path = tmp_path / "payroll.xlsx"
     workbook = openpyxl.Workbook()
