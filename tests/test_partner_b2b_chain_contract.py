@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPERS = (ROOT / "site/patches/9.0/partner_orders_helpers.php").read_text(encoding="utf-8")
 WORKER = (ROOT / "site/patches/9.0/worker.php").read_text(encoding="utf-8")
+ASSIGNMENT_GUARD = (ROOT / "site/patches/9.0/assignment_guard.php").read_text(encoding="utf-8")
 
 
 class PartnerB2BChainContractTests(unittest.TestCase):
@@ -17,6 +18,7 @@ class PartnerB2BChainContractTests(unittest.TestCase):
         self.assertNotIn("$priorityAllowed", HELPERS)
         self.assertIn("'claim_blocked'=>false", HELPERS)
         self.assertIn("if($status==='available'&&$withinRadius)$canClaim=true;", HELPERS)
+        self.assertNotIn("OVERDUE_B2B_MAX_PRIORITY", ASSIGNMENT_GUARD)
 
     def test_chain_prefers_deadline_then_route_progress(self):
         self.assertIn("function av_partner_chain_target", HELPERS)
@@ -30,6 +32,11 @@ class PartnerB2BChainContractTests(unittest.TestCase):
     def test_feed_remains_own_fleet_only(self):
         self.assertIn("!av_worker_is_own_fleet($worker)", HELPERS)
         self.assertIn("Доступно только нашему парку", WORKER)
+
+    def test_one_active_order_and_five_km_queue_rule_remain(self):
+        self.assertIn("av_assignment_for_worker", ASSIGNMENT_GUARD)
+        self.assertIn("if($remaining>5.0)", ASSIGNMENT_GUARD)
+        self.assertIn("'error'=>'WORKER_BUSY'", ASSIGNMENT_GUARD)
 
     def test_driver_sees_deadline_and_chain_progress(self):
         self.assertIn("До предельного срока", WORKER)
