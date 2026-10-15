@@ -8,6 +8,7 @@ RUNTIME_DIR="$APP_ROOT/runtime"
 CURRENT_LINK="$RUNTIME_DIR/current"
 RESTART_HELPER=/usr/local/sbin/avr-max-restart
 DEPLOY_USER=maxdeploy
+BACKUP_ENV=/etc/avr-max-deploy.env
 
 fail() {
   echo "ERROR: $*" >&2
@@ -24,6 +25,8 @@ check_access() {
   [ -d "$RELEASES_DIR" ] && [ -w "$RELEASES_DIR" ] || fail "$RELEASES_DIR is not writable"
   [ -d "$RUNTIME_DIR" ] && [ -w "$RUNTIME_DIR" ] || fail "$RUNTIME_DIR is not writable"
   [ -L "$CURRENT_LINK" ] || fail "$CURRENT_LINK must be an existing symlink before the first deploy"
+  [ -f "$BACKUP_ENV" ] && [ ! -L "$BACKUP_ENV" ] && [ -r "$BACKUP_ENV" ] \
+    || fail "$BACKUP_ENV must be a readable regular file"
   sudo -n "$RESTART_HELPER" --check
   echo "deploy access is ready"
 }
@@ -86,7 +89,7 @@ python3 -m venv "$staging/.venv"
   --no-index --find-links "$staging/wheelhouse" -r "$staging/requirements.txt"
 timeout 10m "$staging/.venv/bin/python" -m pytest -q "$staging/tests"
 "$staging/.venv/bin/python" "$staging/scripts/verify_excel_backup.py" \
-  --env-file "$APP_ROOT/.env" \
+  --env-file "$BACKUP_ENV" \
   --backup-root "$APP_ROOT/data/excel/backups" \
   --max-age-hours 72
 ln -s "$APP_ROOT/data" "$staging/data"

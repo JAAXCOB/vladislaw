@@ -82,6 +82,13 @@ def test_no_workflow_keeps_legacy_password_deployment() -> None:
         assert "contents: write" not in workflow, path
 
 
+def test_deployer_cannot_read_application_secrets() -> None:
+    deployer = (ROOT / "ops/bin/avr-max-deploy").read_text(encoding="utf-8")
+    assert "BACKUP_ENV=/etc/avr-max-deploy.env" in deployer
+    assert '--env-file "$BACKUP_ENV"' in deployer
+    assert '--env-file "$APP_ROOT/.env"' not in deployer
+
+
 @pytest.mark.skipif(os.name == "nt", reason="bash validation runs on Linux and GitHub Actions")
 def test_operations_shell_scripts_parse() -> None:
     for script in (

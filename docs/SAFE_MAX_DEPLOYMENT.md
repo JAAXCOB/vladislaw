@@ -16,6 +16,9 @@ current production service until a maintenance window is approved.
   accepts only an immutable full commit SHA.
 - Deployments never run Git, package-manager, Caddy, Excel repair, job reconciliation,
   or `clear_open_job.py` commands on the server.
+- `maxdeploy` reads only `/etc/avr-max-deploy.env`, containing the two Excel file
+  paths required by the backup gate. It cannot read the application `.env` or its
+  MAX/API secrets.
 - Each release is tested in CI and again from its offline wheel bundle before the
   active symlink is changed.
 
@@ -65,6 +68,8 @@ root-owned so neither SSH account can replace the command that sudo permits.
 5. Confirm that `maxbot` can read the bootstrap code and `.env`, execute the existing
    virtual environment, and read/write only the required files under `data`. Do not
    make `.env` readable by `maxdeploy` or `maxrecovery`.
+   Create `/etc/avr-max-deploy.env` as `root:maxdeploy` mode `0640`, containing only
+   `EXCEL_FILE_PATH` and `PAYROLL_FILE_PATH` copied from the application `.env`.
 6. Install the helper scripts and sudo policy. Do not install or restart the new
    systemd unit yet.
 
