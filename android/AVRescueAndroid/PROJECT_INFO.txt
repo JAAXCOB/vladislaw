@@ -1,0 +1,39 @@
+AV Rescue Driver Android 2.4.0.
+
+Native Android phone application, not a desktop application and not a WebView copy of the site.
+
+Implemented:
+- unified AV Rescue login via bearer token;
+- branded dark/red interface;
+- client/executor role-aware dashboard;
+- service area indicator;
+- native order creation;
+- GPS location;
+- native order details;
+- executor actions: accept, reject, en route, arrived, four vehicle photos, loading, transport and completion;
+- order history;
+- Russian Yandex Maps for pickup and destination;
+- live executor location and ETA tracking;
+- foreground online mode with background GPS, stationary-driver heartbeat and new-order polling;
+- loud looping order alert that stops after accept/reject;
+- server-synchronised five-minute acceptance countdown and automatic reassignment;
+- executor service categories and service-aware order matching;
+- client order cancellation;
+- cash/card commission ledger and rating flow;
+- logout;
+- compatibility login for approved legacy drivers linked by login/email;
+- separate driver tabs: available, assigned and closed;
+- explicit back navigation and driver-focused status/action labels;
+- readable user messages for API errors;
+- point B navigation by its exact destination address, independent of stale pickup coordinates;
+- visually separated points A and B with large readable addresses;
+- fixed bottom primary action on an active order;
+- six-step driver workflow progress;
+- simplified online status screen with a prominent line control;
+- adaptive AV Rescue launcher icon.
+
+Backend: https://av-rescue.ru
+Package: ru.avrescue.app
+Target SDK: 36
+Version: 2.4.0 (40)
+GLONASS: intentionally deferred to the next integration stage.

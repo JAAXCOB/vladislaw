@@ -1,0 +1,12 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'ru.avrescue.app'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'ru.avrescue.app'
+        minSdk 26
+        targetSdk 36
+        versionCode 40
+        versionName '2.4.0'
+    }
+}
