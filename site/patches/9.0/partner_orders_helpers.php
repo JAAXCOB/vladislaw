@@ -7,6 +7,9 @@ define('AV_PARTNER_ORDERS_FILE', __DIR__.'/data/partner_orders.php');
 define('AV_PARTNER_INTEGRATION_FILE', __DIR__.'/data/partner_integration.php');
 define('AV_PARTNER_LOCK_FILE', __DIR__.'/data/partner_orders.lock');
 define('AV_PARTNER_PRIORITY_AGE_SECONDS', 12*60*60);
+define('AV_PARTNER_WARNING_AGE_SECONDS', 6*60*60);
+define('AV_PARTNER_HIGH_AGE_SECONDS', 9*60*60);
+define('AV_PARTNER_CRITICAL_AGE_SECONDS', 10.5*60*60);
 define('AV_PARTNER_RADIUS_STAGE_SECONDS', 5*60);
 define('AV_PARTNER_RADIUS_FIRST_KM', 30);
 define('AV_PARTNER_RADIUS_SECOND_KM', 60);
@@ -27,6 +30,32 @@ function av_partner_order_age_seconds($order,$now=null){
     if($created===null)return null;
     $now=$now===null?time():(int)$now;
     return max(0,$now-$created);
+}
+
+function av_partner_order_deadline_timestamp($order){
+    $created=av_partner_order_created_timestamp($order);
+    return $created===null?null:$created+AV_PARTNER_PRIORITY_AGE_SECONDS;
+}
+
+function av_partner_order_urgency($order,$now=null){
+    $age=av_partner_order_age_seconds($order,$now);
+    if($age===null)return 'unknown';
+    if($age>=AV_PARTNER_PRIORITY_AGE_SECONDS)return 'overdue';
+    if($age>=AV_PARTNER_CRITICAL_AGE_SECONDS)return 'critical';
+    if($age>=AV_PARTNER_HIGH_AGE_SECONDS)return 'high';
+    if($age>=AV_PARTNER_WARNING_AGE_SECONDS)return 'warning';
+    return 'normal';
+}
+
+function av_partner_chain_target($orders,$now=null){
+    $now=$now===null?time():(int)$now;$target=null;$deadline=PHP_INT_MAX;
+    foreach($orders as $order){
+        if(!av_partner_is_max_order($order)||!av_partner_order_is_open($order))continue;
+        if(!av_partner_order_is_unassigned($order))continue;
+        $candidate=av_partner_order_deadline_timestamp($order);
+        if($candidate!==null&&$candidate<$deadline){$deadline=$candidate;$target=$order;}
+    }
+    return $target;
 }
 
 function av_partner_order_is_open($order){
@@ -87,6 +116,10 @@ function av_partner_enrich_order($order,$now=null){
     $order['priority_auto_suppressed']=av_partner_order_is_open($order)&&array_key_exists('priority_override',$order)&&!(bool)$order['priority_override'];
     $order['is_priority']=av_partner_order_is_priority($order,$now);
     $order['priority_unassigned']=$order['is_priority']&&av_partner_order_is_unassigned($order);
+    $deadline=av_partner_order_deadline_timestamp($order);
+    $order['deadline_at']=$deadline===null?'':date('c',$deadline);
+    $order['deadline_seconds_left']=$deadline===null?null:$deadline-$now;
+    $order['urgency']=av_partner_order_urgency($order,$now);
     return $order;
 }
 
@@ -202,7 +235,11 @@ $workerLng=$locationUsable?av_partner_number_or_null($worker['lng']??null,-180,1
     $allOrders=av_partner_orders();
     $now=time();
     $priority=av_partner_priority_state($allOrders,$now);
-    $blockingIds=array_flip($priority['blocking_order_ids']);
+    $chainTarget=av_partner_chain_target($allOrders,$now);
+    $chainTargetId=(string)($chainTarget['id']??'');
+    $targetLat=av_partner_number_or_null($chainTarget['pickup_lat']??null,-90,90);
+    $targetLng=av_partner_number_or_null($chainTarget['pickup_lng']??null,-180,180);
+    $workerToTarget=($workerLat!==null&&$workerLng!==null&&$targetLat!==null&&$targetLng!==null)?av_haversine_km($workerLat,$workerLng,$targetLat,$targetLng):null;
     $mine=array();$available=array();$counts=$empty['counts'];$candidates=array();$routeTargets=array();
     foreach($allOrders as $orderIndex=>$order){
         $order=av_partner_enrich_order($order,$now);
@@ -227,13 +264,19 @@ $workerLng=$locationUsable?av_partner_number_or_null($worker['lng']??null,-180,1
         $distance=$metrics['distance_km'];
         $radius=av_partner_distribution_radius_km($order,$now);
         $withinRadius=true;
-        $priorityAllowed=!$priority['active']||isset($blockingIds[(string)($order['id']??'')]);
         $canClaim=$status==='claimed'&&$isMine;
-        if($status==='available'&&$withinRadius&&$priorityAllowed)$canClaim=true;
+        // An old priority order no longer blocks every other B2B order.  The
+        // feed ranks a feasible chain while the claim endpoint still performs
+        // the atomic one-active-order check.
+        if($status==='available'&&$withinRadius)$canClaim=true;
         if(!$isMine){
             if($withinRadius)$counts['eligible_available']++;
             else $counts['waiting_radius']++;
         }
+        $destinationLat=av_partner_number_or_null($order['destination_lat']??null,-90,90);
+        $destinationLng=av_partner_number_or_null($order['destination_lng']??null,-180,180);
+        $destinationToTarget=($destinationLat!==null&&$destinationLng!==null&&$targetLat!==null&&$targetLng!==null)?av_haversine_km($destinationLat,$destinationLng,$targetLat,$targetLng):null;
+        $progressKm=($workerToTarget!==null&&$destinationToTarget!==null)?round($workerToTarget-$destinationToTarget,1):null;
         $row=array(
             'id'=>$order['id']??'',
             'service'=>$order['service']??'Эвакуация',
@@ -253,12 +296,18 @@ $workerLng=$locationUsable?av_partner_number_or_null($worker['lng']??null,-180,1
             'is_mine'=>$isMine,
             'driver_stage'=>$isMine?($order['driver_stage']??'to_pickup'):'',
             'can_claim'=>$canClaim,
-            'claim_blocked'=>$status==='available'&&$priority['active']&&!isset($blockingIds[(string)($order['id']??'')]),
+            'claim_blocked'=>false,
             'age_seconds'=>$order['age_seconds'],
             'age_minutes'=>$order['age_minutes'],
             'is_overdue'=>$order['is_overdue'],
             'is_priority'=>$order['is_priority'],
             'priority_unassigned'=>$order['priority_unassigned'],
+            'urgency'=>$order['urgency'],
+            'deadline_at'=>$order['deadline_at'],
+            'deadline_seconds_left'=>$order['deadline_seconds_left'],
+            'chain_target'=>$chainTargetId!==''&&(string)($order['id']??'')===$chainTargetId,
+            'chain_target_order_id'=>$chainTargetId,
+            'chain_progress_km'=>$progressKm,
             'distance_km'=>$distance,
             'eta_min'=>$metrics['eta_min'],
             'distance_source'=>$metrics['source'],
@@ -271,16 +320,22 @@ $workerLng=$locationUsable?av_partner_number_or_null($worker['lng']??null,-180,1
         if($isMine)$mine[]=$row;elseif($withinRadius)$available[]=$row;
     }
     $sort=function($a,$b){
-        if($a['is_priority']!==$b['is_priority'])return $a['is_priority']?-1:1;
-        if($a['is_priority']&&$a['age_seconds']!==$b['age_seconds'])return (int)$b['age_seconds']<=>(int)$a['age_seconds'];
+        if($a['chain_target']!==$b['chain_target'])return $a['chain_target']?-1:1;
+        $as=$a['deadline_seconds_left'];$bs=$b['deadline_seconds_left'];
+        if($as!==null&&$bs!==null&&$as!==$bs)return $as<=>$bs;
+        $ap=$a['chain_progress_km'];$bp=$b['chain_progress_km'];
+        if($ap!==null&&$bp!==null&&$ap!=$bp)return $bp<=>$ap;
         $ad=$a['distance_km'];$bd=$b['distance_km'];
         if(($ad===null)!==($bd===null))return $ad===null?1:-1;
         if($ad!==null&&$bd!==null&&$ad!=$bd)return $ad<=>$bd;
         return strcmp((string)($b['created_at']??''),(string)($a['created_at']??''));
     };
     usort($mine,$sort);usort($available,$sort);
-    // A driver receives exactly one actionable row: their own active job, or the
-    // nearest available one. Everything else is represented only by counters.
+    foreach($available as $index=>$unused)$available[$index]['chain_rank']=$index+1;
+    foreach($mine as $index=>$unused)$mine[$index]['chain_rank']=0;
+    // Only one order is active at a time.  When no order is active, all ranked
+    // chain candidates remain visible so the driver is not forced to travel
+    // empty to a distant priority order.
     $visible=!empty($mine)?$mine:$available;
     return array('orders'=>$visible,'counts'=>$counts);
 }
