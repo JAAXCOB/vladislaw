@@ -1,8 +1,8 @@
-name: Build AVR Android Release 3.23 / Client 1.0.9
+name: Build AVR Driver 3.24
 
 on:
   push:
-    branches: [ avr-android-build-233 ]
+    branches: [ codex/android-driver-3.24 ]
   workflow_dispatch:
 
 permissions:
@@ -18,59 +18,26 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Restore source
-        run: |
-          base64 -d ci/avr-android-source.tgz.b64 > /tmp/avr-android.tgz
-          tar -xzf /tmp/avr-android.tgz
-          patch -p1 < ci/android-3.22-privacy-payments.patch
-          patch -p1 < ci/android-3.23-feed.patch
-          patch -p1 < ci/android-v400-ui.patch.txt
-          patch -p1 < ci/android-security-hardening.patch
+      - name: Verify release contract
+        run: python -m unittest tests.test_android_driver_324
       - name: Install Android SDK
         run: |
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)
           test -n "$SDKMANAGER"
           "$SDKMANAGER" 'platforms;android-36' 'build-tools;36.0.0'
-      - name: Build Driver release
+      - name: Build Driver APK and AAB
+        working-directory: AVRescueAndroid
         run: |
-          set +e
-          cd AVRescueAndroid
           chmod +x gradlew
-          ./gradlew clean assembleRelease --no-daemon > ../driver-build.log 2>&1
-          echo $? > ../driver-exit
-          exit 0
-      - name: Build Client release
-        run: |
-          set +e
-          cd AVRescueClientAndroid
-          chmod +x gradlew
-          ./gradlew clean assembleRelease --no-daemon > ../client-build.log 2>&1
-          echo $? > ../client-exit
-          exit 0
-      - name: Report build result
-        run: |
-          echo '## Driver release build' >> $GITHUB_STEP_SUMMARY
-          tail -80 driver-build.log >> $GITHUB_STEP_SUMMARY
-          echo '## Client release build' >> $GITHUB_STEP_SUMMARY
-          tail -80 client-build.log >> $GITHUB_STEP_SUMMARY
-          if [ "$(cat driver-exit)" != 0 ]; then
-            message=$(grep -E 'error:|FAILURE:|What went wrong|Could not|failed' driver-build.log | tail -20 | tr '\n' ' ')
-            echo "::error title=Driver release build::$message"
-            exit 1
-          fi
-          if [ "$(cat client-exit)" != 0 ]; then
-            message=$(grep -E 'error:|FAILURE:|What went wrong|Could not|failed' client-build.log | tail -20 | tr '\n' ' ')
-            echo "::error title=Client release build::$message"
-            exit 1
-          fi
-      - name: Collect unsigned release APKs and signing tool
+          ./gradlew clean assembleDebug assembleRelease bundleRelease --no-daemon
+      - name: Collect artifacts
         run: |
           mkdir artifacts
-          cp AVRescueAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AVR_Driver_3.23_unsigned.apk
-          cp AVRescueClientAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AV_Rescue_Client_1.0.9_unsigned.apk
-          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" artifacts/apksigner.jar
+          cp AVRescueAndroid/app/build/outputs/apk/debug/app-debug.apk artifacts/AVR_Driver_3.24-test.apk
+          cp AVRescueAndroid/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/AVR_Driver_3.24-release-unsigned.apk
+          cp AVRescueAndroid/app/build/outputs/bundle/release/app-release.aab artifacts/AVR_Driver_3.24-release.aab
       - uses: actions/upload-artifact@v4
         with:
-          name: AV-Rescue-Android-Release-3.23-Client-1.0.9
+          name: AVR-Driver-3.24-build-324
           path: artifacts/*
           retention-days: 30

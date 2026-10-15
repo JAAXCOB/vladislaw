@@ -39,13 +39,33 @@ public final class ApiClient {
     public static JSONObject get(String path)throws Exception{return request("GET",path,null);}
     public static JSONObject post(String path,JSONObject body)throws Exception{return request("POST",path,body);}
 
+    public static String errorMessage(JSONObject response,String fallback){
+        if(response==null)return fallback;
+        String error=response.optString("error","").trim();
+        if(error.isEmpty())return fallback;
+        if("AUTH_REQUIRED".equals(error))return "Сессия завершена. Войдите снова";
+        if("EXECUTOR_REQUIRED".equals(error))return "Этот аккаунт не является аккаунтом водителя";
+        if("MODERATION_REQUIRED".equals(error))return "Профиль водителя ещё проверяется";
+        if("WORKER_BUSY".equals(error))return "Сначала завершите текущую заявку";
+        if("NEXT_ORDER_ALREADY_QUEUED".equals(error))return "Следующая заявка уже назначена";
+        if("ORDER_NOT_FOUND".equals(error))return "Заявка больше недоступна";
+        if("INTERNAL_SERVER_ERROR".equals(error)||error.startsWith("HTTP 5"))return "Сервер временно недоступен. Повторите позже";
+        if(!error.matches("[A-Z0-9_]+"))return error;
+        if(response.optInt("_http")==401)return "Логин или пароль не подошли";
+        if(response.optInt("_http")==403)return "Доступ к приложению водителя не подтверждён";
+        return fallback;
+    }
+
     private static JSONObject request(String method,String path,JSONObject body)throws Exception{
         if(path==null||!path.startsWith("/")||path.startsWith("//"))throw new IllegalArgumentException("Invalid API path");
         if(SystemClock.elapsedRealtime()<retryAfterElapsed)throw new IOException("API temporarily unavailable");
         HttpsURLConnection connection=(HttpsURLConnection)new URL(BASE+path).openConnection();
         try{
             connection.setRequestMethod(method);connection.setConnectTimeout(12000);connection.setReadTimeout(15000);connection.setRequestProperty("Accept","application/json");connection.setUseCaches(false);
-            if(hasToken())connection.setRequestProperty("Authorization","Bearer "+token);
+            if(hasToken()){
+                connection.setRequestProperty("Authorization","Bearer "+token);
+                connection.setRequestProperty("X-AVR-Token",token);
+            }
             if(body!=null){connection.setDoOutput(true);connection.setRequestProperty("Content-Type","application/json; charset=utf-8");try(OutputStream os=connection.getOutputStream()){os.write(body.toString().getBytes(StandardCharsets.UTF_8));}}
             int code=connection.getResponseCode();InputStream stream=(code>=200&&code<400)?connection.getInputStream():connection.getErrorStream();String raw=readLimited(stream);
             JSONObject result;try{result=raw.isEmpty()?new JSONObject():new JSONObject(raw);}catch(Exception malformed){result=new JSONObject().put("ok",false).put("error","Сервер вернул некорректный ответ");}

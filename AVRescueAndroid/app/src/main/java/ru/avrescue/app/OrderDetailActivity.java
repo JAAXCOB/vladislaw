@@ -13,7 +13,7 @@ import java.io.ByteArrayOutputStream;
 
 public class OrderDetailActivity extends Activity {
  protected void onStart(){super.onStart();getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);}
- LinearLayout box;
+ LinearLayout box,footer;
  String orderId="";
  JSONObject order=null;
  boolean executor=false;
@@ -28,21 +28,28 @@ public class OrderDetailActivity extends Activity {
   ApiClient.load(this);
   orderId=getIntent().getStringExtra("order_id");
   role=getIntent().getStringExtra("role");if(role==null)role="client";
+  LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);
   ScrollView scroll=new ScrollView(this);
   box=Ui.column(this);
   scroll.addView(box);
-  setContentView(scroll);
+  root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+  footer=new LinearLayout(this);footer.setOrientation(LinearLayout.VERTICAL);footer.setPadding(Ui.dp(this,20),Ui.dp(this,8),Ui.dp(this,20),Ui.dp(this,12));footer.setBackgroundColor(Ui.PANEL);footer.setVisibility(android.view.View.GONE);root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
+  setContentView(root);
   load();
  }
 
  void load(){
+  footer.removeAllViews();footer.setVisibility(android.view.View.GONE);
   box.removeAllViews();
   box.addView(Ui.brand(this));
+  Button back=Ui.darkButton(this,"← Назад к заявкам");back.setOnClickListener(v->finish());box.addView(back);
   box.addView(Ui.text(this,"Заказ "+orderId,24,true));
   box.addView(Ui.muted(this,"Получаем актуальные данные…",13));
   new Thread(()->{
    try{
     JSONObject r=ApiClient.get("/api/mobile_orders.php");
+    if(r.optInt("_http")==401){runOnUiThread(()->{ApiClient.clear(this);startActivity(new Intent(this,LoginActivity.class));finish();});return;}
+    if(!r.optBoolean("ok")){String message=ApiClient.errorMessage(r,"Не удалось загрузить заявку");runOnUiThread(()->{box.removeAllViews();box.addView(Ui.brand(this));Button errorBack=Ui.darkButton(this,"← Назад к заявкам");errorBack.setOnClickListener(v->finish());box.addView(errorBack);box.addView(Ui.muted(this,message,14));});return;}
     JSONArray a=r.optJSONArray("orders");
     JSONObject found=null;
     if(a!=null)for(int i=0;i<a.length();i++){
@@ -58,18 +65,20 @@ public class OrderDetailActivity extends Activity {
  }
 
  void render(){
+  footer.removeAllViews();footer.setVisibility(android.view.View.GONE);
   box.removeAllViews();
   box.addView(Ui.brand(this));
+  Button back=Ui.darkButton(this,"← Назад к заявкам");back.setOnClickListener(v->finish());box.addView(back);
   box.addView(Ui.text(this,"Заказ "+orderId,24,true));
   if(order==null){box.addView(Ui.muted(this,"Заказ не найден.",14));return;}
 
   LinearLayout summary=Ui.card(this);
   summary.addView(Ui.chip(this,statusRu(order.optString("status")),true));
   summary.addView(Ui.text(this,order.optString("service","Услуга"),20,true));
-  summary.addView(Ui.muted(this,"Адрес подачи: "+order.optString("address","Не указан"),14));
+  summary.addView(Ui.routePoint(this,"ТОЧКА А",order.optString("address",""),false));
   boolean detailsLocked=order.optBoolean("details_locked",false);
   if(detailsLocked)summary.addView(Ui.muted(this,"Точка Б, телефон и комментарий откроются после принятия.",13));
-  else summary.addView(Ui.muted(this,"Адрес назначения: "+order.optString("destination","Не указан"),14));
+  else summary.addView(Ui.routePoint(this,"ТОЧКА Б",order.optString("destination",""),true));
   String vehicle=order.optString("vehicle_type","");
   String plate=order.optString("license_plate",order.optString("car",""));
   String dimensions=order.optDouble("vehicle_weight_kg",0)>0?" • "+Math.round(order.optDouble("vehicle_weight_kg"))+" кг":"";
@@ -86,6 +95,7 @@ public class OrderDetailActivity extends Activity {
   String currentStatus=order.optString("status","");int eta=order.optInt("estimated_arrival_min",0);
   if(eta>0&&!"done".equals(currentStatus)&&!"completed".equals(currentStatus)&&!"cancelled".equals(currentStatus)){String etaTitle="in_transit".equals(currentStatus)?"До адреса назначения ≈ ":"До адреса подачи ≈ ";summary.addView(Ui.chip(this,etaTitle+eta+" мин",true));}
   box.addView(summary);
+  if("executor".equals(role))box.addView(Ui.workProgress(this,currentStatus));
   String payStatus=order.optString("payment_status","unpaid");boolean payable=price>0&&!"paid".equals(payStatus)&&!"refunded".equals(payStatus)&&!"cancelled".equals(currentStatus);
   if(payable&&"executor".equals(role)&&order.optString("user_id","").isEmpty()){LinearLayout payment=Ui.card(this);payment.addView(Ui.text(this,"Безналичная оплата",18,true));payment.addView(Ui.muted(this,"Откройте банковский QR и передайте экран клиенту.",13));Button qr=Ui.button(this,"Показать QR для оплаты");qr.setOnClickListener(v->createPayment(qr,true));payment.addView(qr);box.addView(payment);}
 
@@ -100,8 +110,8 @@ public class OrderDetailActivity extends Activity {
   boolean toDestination="in_transit".equals(currentStatus);double lat=toDestination?order.optDouble("destination_lat",0):order.optDouble("lat",0), lng=toDestination?order.optDouble("destination_lng",0):order.optDouble("lng",0);String navAddress=toDestination?order.optString("destination",""):order.optString("address","");
   boolean mapAllowed=!"executor".equals(role)||order.optBoolean("allow_map_navigation",false);
   if(mapAllowed&&((lat!=0&&lng!=0)||!navAddress.isEmpty())){
-    Button nav=Ui.darkButton(this,toDestination?"Открыть адрес назначения на карте":"Открыть адрес подачи на карте");
-    nav.setOnClickListener(v->openYandexMap(lat,lng,navAddress));
+    Button nav=Ui.darkButton(this,toDestination?"Маршрут к точке Б":"Маршрут к точке А");
+    nav.setOnClickListener(v->{if(toDestination)openDestinationMap(lat,lng,navAddress);else openYandexMap(lat,lng,navAddress);});
     box.addView(nav);
   }
 
@@ -109,15 +119,16 @@ public class OrderDetailActivity extends Activity {
   String assigned=order.optString("assigned_worker_id","");
   if("executor".equals(role)&&!assigned.isEmpty()&&!"done".equals(currentStatus)&&!"completed".equals(currentStatus)&&!"cancelled".equals(currentStatus)){
     LinearLayout actions=Ui.card(this);
-    actions.addView(Ui.text(this,"Работа с заказом",18,true));
+    actions.addView(Ui.text(this,"Следующий шаг",18,true));
+    actions.addView(Ui.muted(this,"Основная рабочая кнопка всегда доступна внизу экрана.",13));
     String st=order.optString("status","");
     if(st.equals("offered")){
-      Button accept=Ui.button(this,"Принять заказ");accept.setOnClickListener(v->action("accept"));actions.addView(accept);
+      setPrimaryAction("Принять заказ",()->action("accept"));
       Button reject=Ui.darkButton(this,"Отказаться");reject.setOnClickListener(v->action("reject"));actions.addView(reject);
     } else if(st.equals("assigned")){
-      Button go=Ui.button(this,"Выехал к клиенту");go.setOnClickListener(v->action("enroute"));actions.addView(go);
+      setPrimaryAction("Начать маршрут к точке А",()->action("enroute"));
     } else if(st.equals("enroute")){
-      Button arrived=Ui.button(this,"Прибыл");arrived.setOnClickListener(v->action("arrived"));actions.addView(arrived);
+      setPrimaryAction("Я на месте",()->action("arrived"));
     } else if(st.equals("arrived")){
       JSONObject pending=order.optJSONObject("price_adjustment_pending");boolean approvalPending=pending!=null&&"pending".equals(pending.optString("status"));
       if(approvalPending)actions.addView(Ui.muted(this,"Ожидается подтверждение клиента: "+Math.round(pending.optDouble("before"))+" → "+Math.round(pending.optDouble("after"))+" ₽. До решения погрузка недоступна.",14));
@@ -125,11 +136,11 @@ public class OrderDetailActivity extends Activity {
       Button complexity=Ui.darkButton(this,complex?"Убрать сложную погрузку":"Добавить сложную погрузку");complexity.setEnabled(!approvalPending);complexity.setOnClickListener(v->confirmLoadingComplexity(!complex));actions.addView(complexity);
       int dollies=approvalPending?pending.optInt("dollies",0):order.optInt("dollies",0);Button dolliesButton=Ui.darkButton(this,"Подкаты: "+dollies+" — изменить");dolliesButton.setEnabled(!approvalPending);dolliesButton.setOnClickListener(v->chooseDollies(dollies));actions.addView(dolliesButton);
       boolean deadBattery=approvalPending?pending.optBoolean("dead_battery",false):order.optBoolean("dead_battery",false);Button battery=Ui.darkButton(this,deadBattery?"Убрать бустер АКБ":"Добавить бустер АКБ");battery.setEnabled(!approvalPending);battery.setOnClickListener(v->confirmExtra("dead_battery",!deadBattery,"Бустер АКБ"));actions.addView(battery);
-      Button loading=Ui.button(this,approvalPending?"Ожидается решение клиента":"Сфотографировать авто и начать погрузку");loading.setEnabled(!approvalPending);loading.setOnClickListener(v->takeLoadingPhoto());actions.addView(loading);
+      if(approvalPending){Button loading=Ui.darkButton(this,"Ожидается решение клиента");loading.setEnabled(false);actions.addView(loading);}else setPrimaryAction("Фото автомобиля и погрузка",()->takeLoadingPhoto());
     } else if(st.equals("loading")){
-      Button transit=Ui.button(this,"Погрузка завершена — в путь");transit.setOnClickListener(v->action("in_transit"));actions.addView(transit);
+      setPrimaryAction("Погрузка завершена — к точке Б",()->action("in_transit"));
     } else if(st.equals("in_transit")){
-      Button done=Ui.button(this,"Завершить заказ");done.setOnClickListener(v->action("done"));actions.addView(done);
+      setPrimaryAction("Завершить заявку",()->action("done"));
     }
     box.addView(actions);
   }
@@ -148,11 +159,14 @@ public class OrderDetailActivity extends Activity {
   Button refresh=Ui.darkButton(this,"Обновить заказ");refresh.setOnClickListener(v->load());box.addView(refresh);
  }
 
+ void setPrimaryAction(String label,Runnable action){footer.removeAllViews();Button button=Ui.primaryButton(this,label);button.setOnClickListener(v->action.run());footer.addView(button);footer.setVisibility(android.view.View.VISIBLE);}
+
  void openYandexMap(double lat,double lng,String address){
   Uri uri=(lat!=0&&lng!=0)?Uri.parse("yandexnavi://build_route_on_map?lat_to="+lat+"&lon_to="+lng):Uri.parse("https://yandex.ru/maps/?text="+Uri.encode(address));
   Intent intent=new Intent(Intent.ACTION_VIEW,uri);intent.setPackage("ru.yandex.yandexnavi");
   try{startActivity(intent);}catch(Exception e){Uri web=(lat!=0&&lng!=0)?Uri.parse("https://yandex.ru/maps/?ll="+lng+"%2C"+lat+"&z=16&pt="+lng+"%2C"+lat+"%2Cpm2rdm"):Uri.parse("https://yandex.ru/maps/?text="+Uri.encode(address));try{startActivity(new Intent(Intent.ACTION_VIEW,web));}catch(Exception ignored){Toast.makeText(this,"Не удалось открыть Яндекс Карты",Toast.LENGTH_SHORT).show();}}
  }
+ void openDestinationMap(double lat,double lng,String address){String exact=address==null?"":address.trim();if(exact.isEmpty()){openYandexMap(lat,lng,exact);return;}Uri route=Uri.parse("yandexmaps://maps.yandex.ru/?rtext=~"+Uri.encode(exact)+"&rtt=auto");Intent intent=new Intent(Intent.ACTION_VIEW,route);intent.setPackage("ru.yandex.yandexmaps");try{startActivity(intent);}catch(Exception e){Uri web=Uri.parse("https://yandex.ru/maps/?rtext=~"+Uri.encode(exact)+"&rtt=auto");try{startActivity(new Intent(Intent.ACTION_VIEW,web));}catch(Exception ignored){Toast.makeText(this,"Не удалось открыть адрес точки Б",Toast.LENGTH_SHORT).show();}}}
  void createPayment(Button button,boolean driverQr){button.setEnabled(false);button.setText("Создаём оплату…");new Thread(()->{try{JSONObject r=ApiClient.post("/api/payment_create.php",new JSONObject().put("order_id",orderId));runOnUiThread(()->{button.setEnabled(true);button.setText("Показать QR для оплаты");if(r.optBoolean("ok")){Intent in=new Intent(this,PaymentActivity.class);in.putExtra("payment_url",r.optString("payment_url"));in.putExtra("driver_qr",driverQr);startActivity(in);}else Toast.makeText(this,r.optString("error","Не удалось создать оплату"),Toast.LENGTH_LONG).show();});}catch(Exception e){runOnUiThread(()->{button.setEnabled(true);button.setText("Показать QR для оплаты");Toast.makeText(this,"Нет связи с AV Rescue",Toast.LENGTH_LONG).show();});}}).start();}
 
 
@@ -178,7 +192,7 @@ public class OrderDetailActivity extends Activity {
     JSONObject r=ApiClient.post("/api/mobile_order_action.php",new JSONObject().put("order_id",orderId).put("action",action));
     runOnUiThread(()->{
       if(r.optBoolean("ok")){if("done".equals(action)&&"executor".equals(role)){Toast.makeText(this,"Заказ завершён. Вы остались на линии",Toast.LENGTH_LONG).show();Intent in=new Intent(this,DashboardActivity.class);in.putExtra("open_line",true);in.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK);startActivity(in);finish();}else{Toast.makeText(this,"Статус обновлён",Toast.LENGTH_SHORT).show();load();}}
-      else Toast.makeText(this,r.optString("error","Ошибка"),Toast.LENGTH_LONG).show();
+      else Toast.makeText(this,ApiClient.errorMessage(r,"Не удалось изменить статус заявки"),Toast.LENGTH_LONG).show();
     });
    }catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Нет связи",Toast.LENGTH_SHORT).show());}
   }).start();
@@ -188,11 +202,11 @@ public class OrderDetailActivity extends Activity {
   if("new".equals(s))return "● Новая заявка";
   if("searching".equals(s))return "● Ищем исполнителя";
   if("offered".equals(s))return "● Предложен заказ";
-  if("assigned".equals(s))return "● Исполнитель назначен";
-  if("enroute".equals(s))return "● Исполнитель в пути";
-  if("arrived".equals(s))return "● Исполнитель прибыл";
+  if("assigned".equals(s))return "● Заявка назначена вам";
+  if("enroute".equals(s))return "● Вы едете к точке А";
+  if("arrived".equals(s))return "● Вы на месте";
   if("loading".equals(s))return "● Идёт погрузка";
-  if("in_transit".equals(s))return "● Автомобиль в пути";
+  if("in_transit".equals(s))return "● Вы едете к точке Б";
   if("done".equals(s)||"completed".equals(s))return "● Заказ завершён";
   if("cancelled".equals(s))return "● Заказ отменён";
   return "● "+s;
