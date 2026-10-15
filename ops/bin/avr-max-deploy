@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+APP_ROOT=/opt/vladislaw
+INCOMING_DIR="$APP_ROOT/.deploy/incoming"
+RELEASES_DIR="$APP_ROOT/releases"
+RUNTIME_DIR="$APP_ROOT/runtime"
+CURRENT_LINK="$RUNTIME_DIR/current"
+RESTART_HELPER=/usr/local/sbin/avr-max-restart
+DEPLOY_USER=maxdeploy
+
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+require_deploy_user() {
+  [ "$(id -un)" = "$DEPLOY_USER" ] || fail "must run as $DEPLOY_USER"
+}
+
+check_access() {
+  require_deploy_user
+  [ -d "$INCOMING_DIR" ] && [ -w "$INCOMING_DIR" ] || fail "$INCOMING_DIR is not writable"
+  [ -d "$RELEASES_DIR" ] && [ -w "$RELEASES_DIR" ] || fail "$RELEASES_DIR is not writable"
+  [ -d "$RUNTIME_DIR" ] && [ -w "$RUNTIME_DIR" ] || fail "$RUNTIME_DIR is not writable"
+  [ -L "$CURRENT_LINK" ] || fail "$CURRENT_LINK must be an existing symlink before the first deploy"
+  sudo -n "$RESTART_HELPER" --check
+  echo "deploy access is ready"
+}
+
+if [ "${1:-}" = "--check-access" ]; then
+  [ "$#" -eq 1 ] || fail "--check-access takes no additional arguments"
+  check_access
+  exit 0
+fi
+
+[ "$#" -eq 2 ] || fail "usage: avr-max-deploy RELEASE_ID SHA256"
+require_deploy_user
+
+release_id=$1
+expected_sha=$2
+case "$release_id" in
+  (*[!0-9a-f]*|'') fail "release id must contain lowercase hexadecimal characters only" ;;
+esac
+[ "${#release_id}" -eq 40 ] || [ "${#release_id}" -eq 64 ] || fail "release id must be a full commit hash"
+[[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || fail "invalid SHA-256"
+
+bundle="$INCOMING_DIR/max-bot-${release_id}.tar.gz"
+final_release="$RELEASES_DIR/$release_id"
+[ -f "$bundle" ] && [ ! -L "$bundle" ] || fail "release bundle is missing or is a symlink"
+[ ! -e "$final_release" ] || fail "release already exists: $release_id"
+[ -L "$CURRENT_LINK" ] || fail "current release symlink is missing; complete the bootstrap migration first"
+
+exec 9>"$APP_ROOT/.deploy/deploy.lock"
+flock -n 9 || fail "another deployment is already running"
+printf '%s  %s\n' "$expected_sha" "$bundle" | sha256sum -c -
+
+if tar -tzf "$bundle" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+  fail "release archive contains an unsafe path"
+fi
+
+staging=$(mktemp -d "$RELEASES_DIR/.staging-${release_id}.XXXXXX")
+cleanup() {
+  if [ -n "${staging:-}" ] && [ -d "$staging" ]; then
+    rm -rf -- "$staging"
+  fi
+}
+trap cleanup EXIT
+
+tar -xzf "$bundle" -C "$staging" --no-same-owner --no-same-permissions
+[ "$(tr -d '\r\n' < "$staging/RELEASE_ID")" = "$release_id" ] || fail "release manifest does not match archive name"
+[ -f "$staging/PYTHON_VERSION" ] || fail "Python version manifest is missing"
+required_python=$(tr -d '\r\n' < "$staging/PYTHON_VERSION")
+current_python=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+[ "$current_python" = "$required_python" ] || fail "server Python $current_python does not match release Python $required_python"
+[ ! -e "$staging/.env" ] || fail "release must not contain .env"
+[ ! -e "$staging/data" ] || fail "release must not contain mutable data"
+[ -f "$staging/requirements.txt" ] || fail "requirements.txt is missing"
+[ -d "$staging/wheelhouse" ] || fail "offline wheelhouse is missing"
+if find "$staging" -type l -print -quit | grep -q .; then
+  fail "release must not contain symbolic links"
+fi
+
+python3 -m venv "$staging/.venv"
+"$staging/.venv/bin/python" -m pip install --disable-pip-version-check \
+  --no-index --find-links "$staging/wheelhouse" -r "$staging/requirements.txt"
+timeout 10m "$staging/.venv/bin/python" -m pytest -q "$staging/tests"
+"$staging/.venv/bin/python" "$staging/scripts/verify_excel_backup.py" \
+  --env-file "$APP_ROOT/.env" \
+  --backup-root "$APP_ROOT/data/excel/backups" \
+  --max-age-hours 72
+ln -s "$APP_ROOT/data" "$staging/data"
+
+old_release=$(readlink -f "$CURRENT_LINK")
+[ -d "$old_release" ] || fail "current release target is invalid"
+
+mv "$staging" "$final_release"
+staging=
+rm -f -- "$RUNTIME_DIR/current.next"
+ln -s "$final_release" "$RUNTIME_DIR/current.next"
+mv -Tf "$RUNTIME_DIR/current.next" "$CURRENT_LINK"
+
+if ! sudo -n "$RESTART_HELPER"; then
+  echo "New release failed health checks; rolling back to $old_release" >&2
+  ln -s "$old_release" "$RUNTIME_DIR/current.rollback"
+  mv -Tf "$RUNTIME_DIR/current.rollback" "$CURRENT_LINK"
+  sudo -n "$RESTART_HELPER" || fail "rollback was selected but the previous release did not recover"
+  fail "release $release_id was rolled back"
+fi
+
+rm -f -- "$bundle"
+echo "release $release_id is active"

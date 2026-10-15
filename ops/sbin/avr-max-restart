@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SERVICE=max-webhook.service
+HEALTH_URL=http://127.0.0.1:8000/health
+
+[ "$(id -u)" -eq 0 ] || { echo "ERROR: must run as root" >&2; exit 1; }
+
+if [ "${1:-}" = "--check" ]; then
+  [ "$#" -eq 1 ] || { echo "ERROR: invalid arguments" >&2; exit 2; }
+  systemctl cat "$SERVICE" >/dev/null
+  exit 0
+fi
+
+[ "$#" -eq 0 ] || { echo "ERROR: no arguments are accepted" >&2; exit 2; }
+systemctl restart "$SERVICE"
+
+for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  if curl --fail --silent --show-error --max-time 3 "$HEALTH_URL" >/dev/null; then
+    systemctl is-active --quiet "$SERVICE"
+    echo "MAX webhook is healthy"
+    exit 0
+  fi
+  sleep 2
+done
+
+systemctl status "$SERVICE" --no-pager -l >&2 || true
+journalctl -u "$SERVICE" --no-pager -n 80 >&2 || true
+exit 1

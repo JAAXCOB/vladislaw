@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+APP_ROOT=/opt/vladislaw
+BACKUP_ROOT="$APP_ROOT/data/excel/backups"
+CURRENT="$APP_ROOT/runtime/current"
+RESTART_HELPER=/usr/local/sbin/avr-max-restart
+
+[ "$(id -u)" -eq 0 ] || { echo "ERROR: must run as root" >&2; exit 1; }
+[ "$#" -eq 1 ] || { echo "ERROR: usage: avr-max-excel-restore YYYYMMDDTHHMMSSZ" >&2; exit 2; }
+
+backup_id=$1
+case "$backup_id" in
+  ([0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+  (*) echo "ERROR: invalid backup id" >&2; exit 2 ;;
+esac
+
+backup_dir="$BACKUP_ROOT/$backup_id"
+[ -d "$backup_dir" ] && [ ! -L "$backup_dir" ] || { echo "ERROR: backup not found" >&2; exit 1; }
+[ -x "$CURRENT/.venv/bin/python" ] || { echo "ERROR: active release is incomplete" >&2; exit 1; }
+
+exec 9>"$APP_ROOT/.deploy/excel-restore.lock"
+flock -n 9 || { echo "ERROR: another Excel recovery is already running" >&2; exit 1; }
+
+systemctl stop max-webhook.service
+restart_on_exit() {
+  "$RESTART_HELPER" || true
+}
+trap restart_on_exit EXIT
+
+"$CURRENT/.venv/bin/python" "$CURRENT/scripts/restore_excel_backup.py" \
+  --env-file "$APP_ROOT/.env" \
+  --backup-dir "$backup_dir" \
+  --data-root "$APP_ROOT/data" \
+  --pre-restore-root "$BACKUP_ROOT"
+
+"$RESTART_HELPER"
+trap - EXIT
+echo "Excel backup $backup_id restored and MAX webhook is healthy"

@@ -1,0 +1,3 @@
+# Install as /etc/sudoers.d/avr-max-deploy with mode 0440 and validate with visudo -cf.
+maxdeploy ALL=(root) NOPASSWD: /usr/local/sbin/avr-max-restart "", /usr/local/sbin/avr-max-restart --check
+maxrecovery ALL=(root) NOPASSWD: /usr/local/sbin/avr-max-excel-restore *

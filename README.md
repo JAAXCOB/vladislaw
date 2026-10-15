@@ -1,119 +1,48 @@
-# Vladislaw — MAX → Excel Evacuation Automation
+# AV Rescue automation platform
 
-Automated pipeline: MAX group chat → AI extraction → Excel/database.
+This repository contains the MAX-to-Excel automation, its AV Rescue integration,
+the prepared safe IHC deployment, and the standalone `avr-ai-controller`.
 
-Authenticated MAX events are persisted before acknowledgement, validated, and
-then synchronized with Excel and the AV Rescue partner API.
+The current project status, decisions, priorities, and acceptance criteria are
+maintained in [docs/AVR_PROJECT_REGISTER.md](docs/AVR_PROJECT_REGISTER.md).
+Read that file before starting or continuing AV Rescue work.
 
----
+## Implemented here
 
-## Project structure
+- authenticated MAX webhook and durable event inbox;
+- message extraction, validation, duplicate protection, and reporting rules;
+- Excel and AV Rescue synchronization;
+- secure non-root deployment files with backup gate and rollback;
+- a separate manual Excel recovery workflow;
+- `avr-ai-controller` with site/MAX/OSRM monitoring, an HMAC action journal,
+  closed MAX control, read-only mail adapters, and spending limits;
+- automated tests for the application, deployment security, Excel recovery,
+  and the AI controller.
 
-```
-vladislaw/
-├── webhook/
-│   ├── config.py        # env-var settings
-│   ├── models.py        # Pydantic models (Update, Message, User, …)
-│   └── main.py          # FastAPI webhook endpoint
-├── scripts/
-│   ├── poll.py          # long-poll loop (no public URL needed)
-│   └── register_webhook.py  # one-shot: POST /subscriptions to MAX
-├── tests/
-│   └── test_webhook.py  # mock-payload tests (no token needed)
-├── .env.example
-├── requirements.txt
-└── README.md
-```
+## Canonical operating documents
 
----
+- [Project register and work plan](docs/AVR_PROJECT_REGISTER.md)
+- [Safe MAX deployment on IHC](docs/SAFE_MAX_DEPLOYMENT.md)
+- [AI controller installation](docs/AVR_AI_CONTROLLER_INSTALL.md)
+- [Legacy deployment notice](DEPLOY.md)
 
-## Setup
+## Safety boundary
 
-### 1. Clone and install
+Production is not changed from this checkout without a separate approved
+deployment step. Deployment must not mutate orders, Excel, Caddy, system
+packages, or Git state on the server. Excel recovery is always a separate,
+manual operation.
 
-```bash
-git clone https://github.com/jaaxcob/vladislaw.git
-cd vladislaw
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-```
+Do not store passwords, tokens, Android signing keys, or private SSH keys in
+Git. Use environment files and secret stores described by the operating docs.
 
-### 2. Configure secrets
+## Local verification
 
-```bash
-cp .env.example .env
-# Fill in MAX_BOT_TOKEN, MAX_WEBHOOK_SECRET, MAX_WEBHOOK_URL, MAX_CHAT_ID
-```
-
-`MAX_WEBHOOK_SECRET` — any string of `A-Z a-z 0-9 -`, 5–256 chars. You invent it; MAX echoes it back in the `X-Max-Bot-Api-Secret` header so you can verify requests.
-
-`MAX_CHAT_ID` is mandatory and acts as an allowlist. Separate multiple allowed
-numeric chat IDs with commas.
-
-### 3. Run tests (no token needed)
+Install the relevant requirements in an isolated environment, then run:
 
 ```bash
 pytest
 ```
 
-All tests use mock MAX payloads — no network connection required.
-
----
-
-## Development without a public URL (long polling)
-
-When you have a token but no HTTPS domain yet, use the poll script.  
-MAX delivers updates directly without needing a webhook.
-
-```bash
-python scripts/poll.py
-```
-
-Send a message in the MAX test group to exercise the local polling flow.
-
----
-
-## Production: webhook mode
-
-### Requirements
-- Public domain with valid TLS cert (Let's Encrypt or Минцифры) on **port 443**
-- OR: ngrok tunnel (`ngrok http 8000`) for quick testing
-
-### Start server
-
-```bash
-uvicorn webhook.main:app --host 0.0.0.0 --port 8000
-```
-
-### Register webhook with MAX (run once)
-
-```bash
-python scripts/register_webhook.py
-```
-
-MAX will start POSTing events to your `/webhook` endpoint.  
-Logs show event IDs and processing status without message bodies or customer data.
-
----
-
-## Webhook endpoint
-
-| | |
-|---|---|
-| Path | `POST /webhook` |
-| Auth | `X-Max-Bot-Api-Secret` header must match `MAX_WEBHOOK_SECRET` |
-| Response | `200 {"ok": "true"}` after an accepted event is persisted locally |
-| Error | `403` on wrong secret, `400` on invalid JSON |
-
----
-
-## Roadmap
-
-- **Phase 1 (current):** receive raw JSON → log it
-- **Phase 2:** parse into typed internal objects
-- **Phase 3:** AI extraction → structured JSON
-- **Phase 4:** validation + duplicate detection
-- **Phase 5:** database (PostgreSQL)
-- **Phase 6:** Excel sync
-- **Phase 7:** human-review workflow
-- **Phase 8:** production deployment
+The asynchronous Linux/systemd path must also pass in CI or on a Linux staging
+host before any production installation.

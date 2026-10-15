@@ -1,0 +1,67 @@
+name: Restore MAX Excel from a validated backup
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_id:
+        description: Backup directory id, for example 20261013T120000Z
+        required: true
+        type: string
+      confirmation:
+        description: Type RESTORE_EXCEL to confirm the data change
+        required: true
+        type: string
+
+concurrency:
+  group: max-excel-recovery-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    if: ${{ inputs.confirmation == 'RESTORE_EXCEL' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production-max-excel-recovery
+    steps:
+      - name: Validate request
+        shell: bash
+        env:
+          BACKUP_ID: ${{ inputs.backup_id }}
+        run: |
+          set -euo pipefail
+          case "$BACKUP_ID" in
+            ([0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+            (*) echo "backup_id must use YYYYMMDDTHHMMSSZ" >&2; exit 2 ;;
+          esac
+
+      - name: Configure recovery-only SSH identity
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.MAX_RECOVERY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.MAX_RECOVERY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 0600 "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+
+      - name: Restore selected backup
+        shell: bash
+        env:
+          BACKUP_ID: ${{ inputs.backup_id }}
+          RECOVERY_HOST: ${{ secrets.MAX_RECOVERY_HOST }}
+          RECOVERY_USER: ${{ secrets.MAX_RECOVERY_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$RECOVERY_HOST"
+          test -n "$RECOVERY_USER"
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            "$RECOVERY_USER@$RECOVERY_HOST" \
+            "sudo -n /usr/local/sbin/avr-max-excel-restore '$BACKUP_ID'"

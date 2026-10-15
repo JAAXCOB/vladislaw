@@ -1,202 +1,143 @@
-name: Deploy MAX bot
+name: Deploy MAX bot safely
 
 on:
-  push:
-    branches:
-      - claude/max-excel-evacuation-automation-zxuvb4
-    paths:
-      - ".github/workflows/deploy-bot.yml"
-      - "webhook/**"
-      - "scripts/**"
-      - "Dockerfile"
-      - "docker-compose.yml"
-      - "requirements.txt"
-      - "runtime-status.txt"
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Full 40-character commit SHA to deploy
+        required: true
+        type: string
+      python_version:
+        description: Must match python3 major.minor on IHC
+        required: true
+        default: "3.12"
+        type: string
+      deploy_to_production:
+        description: Activate on production after tests (also requires environment approval)
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: deploy-max-bot-production
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  verify-and-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out requested revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Verify immutable revision
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_REF" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$REQUESTED_REF"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+
+      - name: Install and test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pytest -q
+          bash -n ops/bin/avr-max-deploy
+          bash -n ops/sbin/avr-max-restart
+          bash -n ops/sbin/avr-max-excel-restore
+
+      - name: Build offline release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id="$(git rev-parse HEAD)"
+          mkdir -p build/release/wheelhouse
+          python -m pip download --disable-pip-version-check \
+            --only-binary=:all: \
+            --dest build/release/wheelhouse \
+            -r requirements.txt
+          cp -a ai_controller webhook scripts tests requirements.txt \
+            requirements-ai-controller.txt build/release/
+          printf '%s\n' "$release_id" > build/release/RELEASE_ID
+          python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" \
+            > build/release/PYTHON_VERSION
+          tar -C build/release -czf "build/max-bot-${release_id}.tar.gz" .
+          sha256sum "build/max-bot-${release_id}.tar.gz" > "build/max-bot-${release_id}.tar.gz.sha256"
+          printf 'RELEASE_ID=%s\n' "$release_id" >> "$GITHUB_ENV"
+
+      - name: Upload tested release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: max-bot-${{ env.RELEASE_ID }}
+          path: |
+            build/max-bot-${{ env.RELEASE_ID }}.tar.gz
+            build/max-bot-${{ env.RELEASE_ID }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
   deploy:
+    if: ${{ inputs.deploy_to_production }}
+    needs: verify-and-package
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      SERVER_HOST: ${{ secrets.SERVER_HOST }}
-      SERVER_USER: ${{ secrets.SERVER_USER }}
-      SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
-      AV_RESCUE_API_KEY: ${{ secrets.AV_RESCUE_API_KEY }}
-      AV_RESCUE_API_URL: ${{ secrets.AV_RESCUE_API_URL }}
+    environment: production-max
     steps:
-      - name: Check out diagnostics target
-        uses: actions/checkout@v4
+      - name: Download tested release
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          ref: claude/max-excel-evacuation-automation-zxuvb4
+          pattern: max-bot-*
+          merge-multiple: true
+          path: release
 
-      - name: Deploy current branch
+      - name: Configure pinned SSH identity
         shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.MAX_DEPLOY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.MAX_DEPLOY_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
-          if [ -z "$SERVER_HOST" ] || [ -z "$SERVER_USER" ] || [ -z "$SERVER_PASSWORD" ]; then
-            echo "Auto-deploy is not configured: add SERVER_HOST, SERVER_USER and SERVER_PASSWORD secrets."
-            exit 0
-          fi
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 0600 "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
 
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq sshpass
-          export SSHPASS="$SERVER_PASSWORD"
-
-          printf '%s\n%s\n' "$AV_RESCUE_API_KEY" "$AV_RESCUE_API_URL" | sshpass -e ssh \
-            -o StrictHostKeyChecking=accept-new \
-            -o ConnectTimeout=20 \
-            "$SERVER_USER@$SERVER_HOST" \
-            'set -euo pipefail
-             IFS= read -r AV_RESCUE_API_KEY_INPUT
-             IFS= read -r AV_RESCUE_API_URL_INPUT
-             cd /opt/vladislaw
-             git fetch origin claude/max-excel-evacuation-automation-zxuvb4
-             BACKUP_DIR="/opt/backups/max-bot-pre-deploy-$(date -u +%Y%m%dT%H%M%SZ)"
-             install -d -m 0700 "$BACKUP_DIR"
-             git status --porcelain > "$BACKUP_DIR/git-status.txt"
-             git diff --binary > "$BACKUP_DIR/server-local-changes.patch"
-             if ! git diff --quiet || ! git diff --cached --quiet; then
-               git stash push -m "AV Rescue pre-deploy backup $(date -u +%FT%TZ)"
-             fi
-             git checkout claude/max-excel-evacuation-automation-zxuvb4
-             git merge --ff-only origin/claude/max-excel-evacuation-automation-zxuvb4
-             if git rev-parse --verify refs/stash >/dev/null 2>&1 && \
-                git show refs/stash:scripts/daily_import.py > "$BACKUP_DIR/daily_import.py" 2>/dev/null; then
-               cp "$BACKUP_DIR/daily_import.py" scripts/daily_import.py
-             fi
-
-             export DEBIAN_FRONTEND=noninteractive
-             if ! apt-get update -qq; then
-               echo "Package index update failed; disabling the stale Caddy Cloudsmith source"
-               rm -f /etc/apt/sources.list.d/caddy-stable.list
-               apt-get update -qq
-             fi
-             apt-get install -y -qq python3-venv python3-pip curl
-             python3 -m venv .venv
-             .venv/bin/python -m pip install --upgrade pip
-             .venv/bin/pip install -r requirements.txt
-             .venv/bin/pytest -q tests/test_open_jobs_tracker.py tests/test_payroll_employee.py tests/test_webhook.py::test_structured_partner_request_fields
-
-             install -d -m 0755 /opt/vladislaw/data/excel
-
-             PUBLIC_HOST="$(hostname -f)"
-             WEBHOOK_URL="https://${PUBLIC_HOST}/webhook"
-             WEBHOOK_SECRET="$(grep -E "^MAX_WEBHOOK_SECRET=." .env | head -n 1 | cut -d= -f2- || true)"
-             if [ -z "$WEBHOOK_SECRET" ]; then
-               WEBHOOK_SECRET="$(openssl rand -hex 32)"
-             fi
-
-             set_env_value() {
-               key="$1"
-               value="$2"
-               if grep -q "^${key}=" .env; then
-                 sed -i "s|^${key}=.*|${key}=${value}|" .env
-               else
-                 printf "%s=%s\n" "$key" "$value" >> .env
-               fi
-             }
-             set_env_value MAX_WEBHOOK_URL "$WEBHOOK_URL"
-             set_env_value MAX_WEBHOOK_SECRET "$WEBHOOK_SECRET"
-             if [ -n "$AV_RESCUE_API_KEY_INPUT" ]; then
-               set_env_value AV_RESCUE_API_KEY "$AV_RESCUE_API_KEY_INPUT"
-             fi
-             if [ -n "$AV_RESCUE_API_URL_INPUT" ]; then
-               set_env_value AV_RESCUE_API_URL "$AV_RESCUE_API_URL_INPUT"
-             fi
-
-             if ! command -v caddy >/dev/null 2>&1; then
-               apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https gpg
-               curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-               curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt" > /etc/apt/sources.list.d/caddy-stable.list
-               apt-get update -qq
-               apt-get install -y -qq caddy
-             fi
-             printf "%s\n" "${PUBLIC_HOST} {" "    reverse_proxy 127.0.0.1:8000" "}" > /etc/caddy/Caddyfile
-
-             printf "%s\n" "[Unit]" "Description=MAX webhook receiver for AV Rescue" "After=network-online.target" "Wants=network-online.target" "" "[Service]" "Type=simple" "WorkingDirectory=/opt/vladislaw" "EnvironmentFile=/opt/vladislaw/.env" "ExecStart=/opt/vladislaw/.venv/bin/uvicorn webhook.main:app --host 127.0.0.1 --port 8000" "Restart=always" "RestartSec=5" "TimeoutStopSec=20" "" "[Install]" "WantedBy=multi-user.target" > /etc/systemd/system/max-webhook.service
-
-             systemctl stop max-webhook.service || true
-             pkill -TERM -f "[r]epair_excel_since.py" || true
-             for attempt in 1 2 3 4 5; do
-               if ! pgrep -f "[r]epair_excel_since.py" >/dev/null; then
-                 break
-               fi
-               sleep 1
-             done
-             if pgrep -f "[r]epair_excel_since.py" >/dev/null; then
-               pkill -KILL -f "[r]epair_excel_since.py"
-             fi
-             .venv/bin/python scripts/restore_latest_valid_excel.py
-             systemctl daemon-reload
-             systemctl enable max-webhook.service caddy.service
-             systemctl restart max-webhook.service
-             systemctl restart caddy.service
-
-             for attempt in 1 2 3 4 5 6; do
-               if curl -fsS http://127.0.0.1:8000/health; then
-                 break
-               fi
-               if [ "$attempt" -eq 6 ]; then
-                 systemctl status max-webhook.service --no-pager -l || true
-                 journalctl -u max-webhook.service --no-pager -n 120 || true
-                 exit 1
-               fi
-               sleep 2
-             done
-
-             for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-               if curl -fsS "https://${PUBLIC_HOST}/health"; then
-                 break
-               fi
-               if [ "$attempt" -eq 12 ]; then
-                 systemctl status caddy.service --no-pager -l || true
-                 journalctl -u caddy.service --no-pager -n 120 || true
-                 exit 1
-               fi
-               sleep 5
-             done
-             .venv/bin/python scripts/register_webhook.py
-
-             if .venv/bin/python -c "from webhook.av_rescue_client import sync_explicit_close"; then
-               .venv/bin/python scripts/reconcile_closed_jobs.py --hours 720
-             else
-               echo "Daily import compatibility function is not installed yet; live webhook is healthy."
-               grep -n -C 8 "sync_explicit_close" scripts/daily_import.py || true
-             fi
-             .venv/bin/python scripts/clear_open_job.py Е677ТР797
-             .venv/bin/python scripts/clear_open_job.py Т683НС797
-             .venv/bin/python scripts/clear_open_job.py О019ОУ797
-             .venv/bin/python scripts/safe_diagnostics.py
-
-             systemctl status max-webhook.service --no-pager -l
-             systemctl status caddy.service --no-pager -l'
-
-      - name: Save privacy-safe runtime status
+      - name: Upload and activate tested release
         shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.MAX_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.MAX_DEPLOY_USER }}
         run: |
           set -euo pipefail
-          if [ -z "$SERVER_HOST" ] || [ -z "$SERVER_USER" ] || [ -z "$SERVER_PASSWORD" ]; then
-            exit 0
-          fi
-          export SSHPASS="$SERVER_PASSWORD"
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 \
-            "$SERVER_USER@$SERVER_HOST" \
-            'cd /opt/vladislaw && .venv/bin/python scripts/safe_diagnostics.py' > runtime-status.txt
-          printf 'checked_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> runtime-status.txt
-          git config user.name "AV Rescue Deploy Bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add runtime-status.txt
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "Update safe production status [skip ci]"
-          git pull --rebase origin claude/max-excel-evacuation-automation-zxuvb4
-          git push origin HEAD:claude/max-excel-evacuation-automation-zxuvb4
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          bundle="$(find release -maxdepth 1 -type f -name 'max-bot-*.tar.gz' -print -quit)"
+          test -n "$bundle"
+          checksum="$(sha256sum "$bundle" | awk '{print $1}')"
+          release_id="${bundle##*/max-bot-}"
+          release_id="${release_id%.tar.gz}"
+          case "$release_id" in
+            (*[!0-9a-f]*|'') echo "Invalid release id" >&2; exit 2 ;;
+          esac
+          ssh_options=(-o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20)
+          scp "${ssh_options[@]}" "$bundle" \
+            "$DEPLOY_USER@$DEPLOY_HOST:/opt/vladislaw/.deploy/incoming/max-bot-${release_id}.tar.gz"
+          ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "/usr/local/bin/avr-max-deploy '$release_id' '$checksum'"

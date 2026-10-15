@@ -1,0 +1,29 @@
+[Unit]
+Description=MAX webhook receiver for AV Rescue
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=maxbot
+Group=maxbot
+WorkingDirectory=/opt/vladislaw/runtime/current
+EnvironmentFile=/opt/vladislaw/.env
+ExecStart=/opt/vladislaw/runtime/current/.venv/bin/uvicorn webhook.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+ReadWritePaths=/opt/vladislaw/data
+
+[Install]
+WantedBy=multi-user.target

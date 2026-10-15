@@ -1,65 +1,17 @@
-# Rebuild September after the universal road-pull tariff and Bodrov payroll correction.
-name: Repair B2B Excel for September
+name: Retired - September Excel repair
 
 on:
-  push:
-    branches:
-      - claude/max-excel-evacuation-automation-zxuvb4
-    paths:
-      - ".github/workflows/repair-excel-2026-09-07.yml"
   workflow_dispatch:
 
-concurrency:
-  group: deploy-max-bot-production
-  cancel-in-progress: false
+permissions:
+  contents: read
 
 jobs:
-  repair:
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      SERVER_HOST: ${{ secrets.SERVER_HOST }}
-      SERVER_USER: ${{ secrets.SERVER_USER }}
-      SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: claude/max-excel-evacuation-automation-zxuvb4
-
-      - name: Back up and rebuild both B2B workbooks
-        shell: bash
+      - name: Explain replacement
         run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq sshpass
-          export SSHPASS="$SERVER_PASSWORD"
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -o ServerAliveCountMax=40 "$SERVER_USER@$SERVER_HOST" \
-            'set -euo pipefail
-             cd /opt/vladislaw
-             git fetch origin claude/max-excel-evacuation-automation-zxuvb4
-             BACKUP_DIR="/opt/backups/max-b2b-excel-pre-repair-$(date -u +%Y%m%dT%H%M%SZ)"
-             install -d -m 0700 "$BACKUP_DIR"
-             git status --porcelain > "$BACKUP_DIR/git-status.txt"
-             git diff --binary > "$BACKUP_DIR/server-local-changes.patch"
-             if ! git diff --quiet || ! git diff --cached --quiet; then
-               git stash push -m "AV Rescue pre-repair backup $(date -u +%FT%TZ)"
-             fi
-             git checkout claude/max-excel-evacuation-automation-zxuvb4
-             git merge --ff-only origin/claude/max-excel-evacuation-automation-zxuvb4
-             if git rev-parse --verify refs/stash >/dev/null 2>&1 && \
-                git show refs/stash:scripts/daily_import.py > "$BACKUP_DIR/daily_import.py" 2>/dev/null; then
-               cp "$BACKUP_DIR/daily_import.py" scripts/daily_import.py
-             fi
-             .venv/bin/pytest -q tests/test_reporting_rules.py
-             systemctl stop max-webhook.service
-             trap "systemctl start max-webhook.service" EXIT
-             .venv/bin/python scripts/repair_excel_since.py --since 2026-09-01 --apply --quiet
-             .venv/bin/python scripts/close_reminder_duplicates.py --since 2026-09-01
-             systemctl start max-webhook.service
-             trap - EXIT
-             for attempt in 1 2 3 4 5; do
-               if curl -fsS http://127.0.0.1:8000/health; then exit 0; fi
-               sleep 2
-             done
-             systemctl status max-webhook.service --no-pager -l
-             exit 1'
+          echo "This one-off password-based repair workflow is retired."
+          echo "Use the separately protected restore-excel.yml workflow for an approved recovery."
+          exit 1

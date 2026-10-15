@@ -1,0 +1,37 @@
+[Unit]
+Description=AV Rescue read-only AI controller
+After=network-online.target max-webhook.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=avrai
+Group=avrai
+WorkingDirectory=/opt/vladislaw/ai-controller/current
+EnvironmentFile=/opt/vladislaw/.env.ai-controller
+ExecStart=/opt/vladislaw/ai-controller/current/.venv/bin/uvicorn --factory ai_controller.app:create_app --host 127.0.0.1 --port 8010
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/opt/vladislaw/data/ai-controller
+MemoryMax=384M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
