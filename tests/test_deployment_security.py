@@ -65,6 +65,12 @@ def test_deploy_workflow_has_no_password_or_business_data_mutation() -> None:
     assert "actions/download-artifact@v4" not in workflow
 
 
+def test_release_bundle_contains_files_required_by_server_side_tests() -> None:
+    workflow = (ROOT / ".github/workflows/deploy-bot.yml").read_text(encoding="utf-8")
+
+    assert "cp -a .github ops .env.ai-controller.example" in workflow
+
+
 def test_excel_restore_is_separate_and_manual_only() -> None:
     workflow = (ROOT / ".github/workflows/restore-excel.yml").read_text(encoding="utf-8")
     assert "workflow_dispatch:" in workflow

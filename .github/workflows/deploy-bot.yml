@@ -71,7 +71,8 @@ jobs:
             --only-binary=:all: \
             --dest build/release/wheelhouse \
             -r requirements.txt
-          cp -a ai_controller webhook scripts tests requirements.txt \
+          cp -a .github ops .env.ai-controller.example \
+            ai_controller webhook scripts tests requirements.txt \
             requirements-ai-controller.txt build/release/
           printf '%s\n' "$release_id" > build/release/RELEASE_ID
           python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" \
