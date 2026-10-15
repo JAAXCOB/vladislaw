@@ -97,7 +97,9 @@ still available:
    `/usr/local/bin/avr-max-deploy --check-access`. It must report that the three
    directories and restart helper are ready without restarting the service.
 2. Run `sudo -n -l` as `maxdeploy`. Only `avr-max-restart` with no argument or
-   `--check` may be allowed. `sudo -n bash` and restarting Caddy must fail.
+   `--check` may be allowed. The `--check` mode validates the fixed current
+   release and latest Excel backup as root without granting `maxdeploy` read
+   access to Excel data. `sudo -n bash` and restarting Caddy must fail.
 3. Log in as `maxrecovery`; verify that only `avr-max-excel-restore` is permitted.
    Do not execute it during an access test.
 4. Verify a wrong host key is rejected and password authentication is not offered to

@@ -3,12 +3,23 @@ set -Eeuo pipefail
 
 SERVICE=max-webhook.service
 HEALTH_URL=http://127.0.0.1:8000/health
+APP_ROOT=/opt/vladislaw
+CURRENT_LINK="$APP_ROOT/runtime/current"
+BACKUP_ENV=/etc/avr-max-deploy.env
+BACKUP_ROOT="$APP_ROOT/data/excel/backups"
 
 [ "$(id -u)" -eq 0 ] || { echo "ERROR: must run as root" >&2; exit 1; }
 
 if [ "${1:-}" = "--check" ]; then
   [ "$#" -eq 1 ] || { echo "ERROR: invalid arguments" >&2; exit 2; }
   systemctl cat "$SERVICE" >/dev/null
+  [ -L "$CURRENT_LINK" ] || { echo "ERROR: current release link is missing" >&2; exit 1; }
+  [ -x "$CURRENT_LINK/.venv/bin/python" ] || { echo "ERROR: current release Python is missing" >&2; exit 1; }
+  [ -f "$CURRENT_LINK/scripts/verify_excel_backup.py" ] || { echo "ERROR: backup verifier is missing" >&2; exit 1; }
+  "$CURRENT_LINK/.venv/bin/python" "$CURRENT_LINK/scripts/verify_excel_backup.py" \
+    --env-file "$BACKUP_ENV" \
+    --backup-root "$BACKUP_ROOT" \
+    --max-age-hours 72
   exit 0
 fi
 

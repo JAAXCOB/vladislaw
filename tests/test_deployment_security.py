@@ -91,8 +91,13 @@ def test_no_workflow_keeps_legacy_password_deployment() -> None:
 
 def test_deployer_cannot_read_application_secrets() -> None:
     deployer = (ROOT / "ops/bin/avr-max-deploy").read_text(encoding="utf-8")
+    restart_helper = (ROOT / "ops/sbin/avr-max-restart").read_text(encoding="utf-8")
     assert "BACKUP_ENV=/etc/avr-max-deploy.env" in deployer
-    assert '--env-file "$BACKUP_ENV"' in deployer
+    assert 'sudo -n "$RESTART_HELPER" --check' in deployer
+    assert '"$staging/scripts/verify_excel_backup.py"' not in deployer
+    assert "BACKUP_ENV=/etc/avr-max-deploy.env" in restart_helper
+    assert '--env-file "$BACKUP_ENV"' in restart_helper
+    assert 'BACKUP_ROOT="$APP_ROOT/data/excel/backups"' in restart_helper
     assert '--env-file "$APP_ROOT/.env"' not in deployer
     assert 'exec 9>"$INCOMING_DIR/deploy.lock"' in deployer
     assert 'exec 9>"$APP_ROOT/.deploy/deploy.lock"' not in deployer

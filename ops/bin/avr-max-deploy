@@ -88,10 +88,7 @@ python3 -m venv "$staging/.venv"
 "$staging/.venv/bin/python" -m pip install --disable-pip-version-check \
   --no-index --find-links "$staging/wheelhouse" -r "$staging/requirements.txt"
 timeout 10m "$staging/.venv/bin/python" -m pytest -q "$staging/tests"
-"$staging/.venv/bin/python" "$staging/scripts/verify_excel_backup.py" \
-  --env-file "$BACKUP_ENV" \
-  --backup-root "$APP_ROOT/data/excel/backups" \
-  --max-age-hours 72
+sudo -n "$RESTART_HELPER" --check
 ln -s "$APP_ROOT/data" "$staging/data"
 
 old_release=$(readlink -f "$CURRENT_LINK")
