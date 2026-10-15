@@ -11,15 +11,16 @@ public class DashboardActivity extends Activity implements LocationListener{
  protected void onResume(){super.onResume();if(executor&&!polling){polling=true;handler.postDelayed(poll,3000);}}
  protected void onPause(){super.onPause();handler.removeCallbacks(poll);handler.removeCallbacks(offerTicker);polling=false;}
  void build(){root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Ui.BG);ScrollView s=new ScrollView(this);content=Ui.column(this);s.addView(content);root.addView(s,new LinearLayout.LayoutParams(-1,0,1));nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setBackgroundColor(Ui.PANEL);root.addView(nav,new LinearLayout.LayoutParams(-1,-2));setContentView(root);}
- void header(){content.addView(Ui.brand(this));content.addView(Ui.chip(this,"● Москва • Московская область • межгород",true));}
- void load(){content.removeAllViews();header();content.addView(Ui.muted(this,"Загрузка…",14));new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->render(r));}catch(Exception e){runOnUiThread(()->error("Нет связи с сервером"));}}).start();}
+ void header(){content.addView(Ui.brand(this));content.addView(Ui.chip(this,"● Москва • Московская область • межгород",true));content.addView(Ui.muted(this,"AVR Driver · версия 3.23",11));}
+ void load(){content.removeAllViews();header();content.addView(Ui.muted(this,"Загрузка…",14));Button retry=Ui.darkButton(this,"Повторить загрузку");retry.setOnClickListener(v->load());content.addView(retry);new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->render(r));}catch(Exception e){runOnUiThread(()->error("Нет связи с сервером. Проверьте интернет и повторите."));}}).start();}
  void refreshQuiet(){new Thread(()->{try{JSONObject r=ApiClient.get("/api/mobile_dashboard.php");runOnUiThread(()->{if(r.optBoolean("ok")){data=r;JSONObject p=r.optJSONObject("profile");role=p==null?"client":p.optString("role","client");executor="executor".equals(role);JSONObject ex=r.optJSONObject("executor");String executorStatus=ex==null?"":ex.optString("status");online=ex!=null&&("online".equals(executorStatus)||"reserved".equals(executorStatus)||"busy".equals(executorStatus));if(executor&&online)startDriverService();setupNav();if("Главная".equals(currentPage))home();else if("Работа на линии".equals(currentPage))linePage();else if("Заказы".equals(currentPage)||"Заявки и заказы".equals(currentPage))orders();else if("Доход и комиссия".equals(currentPage))finance();else if("Профиль".equals(currentPage))profile();}});}catch(Exception ignored){}}).start();}
- void error(String s){content.removeAllViews();header();content.addView(Ui.muted(this,s,15));}
+ void error(String s){content.removeAllViews();header();content.addView(Ui.muted(this,s,15));Button retry=Ui.button(this,"Повторить");retry.setOnClickListener(v->load());content.addView(retry);}
  void render(JSONObject r){if(r.optInt("_http")==401){ApiClient.clear(this);startActivity(new Intent(this,LoginActivity.class));finish();return;}if(!r.optBoolean("ok")){error(r.optString("error","Ошибка"));return;}data=r;JSONObject p=r.optJSONObject("profile");role=p==null?"client":p.optString("role","client");executor="executor".equals(role);JSONObject ex=r.optJSONObject("executor");String executorStatus=ex==null?"":ex.optString("status");online=ex!=null&&("online".equals(executorStatus)||"reserved".equals(executorStatus)||"busy".equals(executorStatus));if(executor&&online)startDriverService();setupNav();if(executor&&getIntent().getBooleanExtra("open_line",false))getIntent().removeExtra("open_line");home();if(executor&&!polling){polling=true;handler.postDelayed(poll,3000);}}
  boolean staff(){return "superadmin".equals(role)||"admin".equals(role)||"dispatcher".equals(role)||"staff".equals(role);}boolean admin(){return "superadmin".equals(role)||"admin".equals(role);}
- void addNav(String t,Runnable r){Button b=new Button(this);b.setText(t);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setTextSize(10);b.setPadding(1,0,1,0);b.setBackgroundColor(Color.TRANSPARENT);b.setOnClickListener(v->r.run());nav.addView(b,new LinearLayout.LayoutParams(0,Ui.dp(this,54),1));}
+ boolean navSelected(String t){return currentPage.equals(t)||(t.equals("Заказы")&&currentPage.contains("заказы"))||(t.equals("Доход")&&currentPage.contains("Доход"))||(t.equals("Профиль")&&currentPage.contains("Профиль"));}
+ void addNav(String t,Runnable r){Button b=Ui.navButton(this,t,navSelected(t));b.setOnClickListener(v->r.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,Ui.dp(this,56),1);p.setMargins(Ui.dp(this,3),Ui.dp(this,4),Ui.dp(this,3),Ui.dp(this,4));nav.addView(b,p);}
  void setupNav(){nav.removeAllViews();if(staff()){addNav("Главная",()->home());addNav("Заказы",()->orders());addNav("Водители",()->resources("workers","Исполнители"));addNav("Автопарк",()->resources("fleet","Автопарк"));addNav("Ещё",()->more());}else if(executor){addNav("Главная",()->home());addNav("Заказы",()->orders());addNav("Доход",()->finance());addNav("Профиль",()->profile());}else{addNav("Главная",()->home());addNav("Заказы",()->orders());addNav("Помощь",()->startActivity(new Intent(this,CreateOrderActivity.class)));addNav("Профиль",()->more());}}
- void page(String t){currentPage=t;handler.removeCallbacks(offerTicker);offerTimer=null;offerDeadlineElapsed=0;content.removeAllViews();header();content.addView(Ui.text(this,t,25,true));}
+ void page(String t){currentPage=t;setupNav();handler.removeCallbacks(offerTicker);offerTimer=null;offerDeadlineElapsed=0;content.removeAllViews();header();content.addView(Ui.text(this,t,27,true));}
  void home(){page("Главная");JSONObject p=data.optJSONObject("profile"),ex=data.optJSONObject("executor");LinearLayout c=Ui.card(this);c.addView(Ui.text(this,(p==null?"Исполнитель":p.optString("name","Исполнитель")),22,true));if(ex!=null)c.addView(Ui.muted(this,"★ "+oneDecimal(ex.optDouble("rating",5))+"   •   комиссия "+Math.round(ex.optDouble("commission_rate",10))+"%",14));content.addView(c);JSONObject st=data.optJSONObject("stats");if(staff()&&st!=null){LinearLayout s=Ui.card(this);s.addView(Ui.text(this,"Сводка",19,true));s.addView(Ui.text(this,"Новые: "+st.optInt("new")+"   Активные: "+st.optInt("active"),16,true));s.addView(Ui.text(this,"Завершено: "+st.optInt("done")+"   Отменено: "+st.optInt("cancelled"),15,false));content.addView(s);}if(staff()){quick("Заявки и заказы","Диспетчерская",()->orders());quick("Исполнители","Статусы, рейтинг, геопозиция",()->resources("workers","Исполнители"));if(admin())quick("Заявки на регистрацию","Документы и автоматические проверки",()->applications());}else if(executor){driverHomeStats();Button status=online?Ui.darkButton(this,"● НА ЛИНИИ — НАЖАТЬ, ЧТОБЫ УЙТИ"):Ui.button(this,"ВЫЙТИ НА ЛИНИЮ");status.setOnClickListener(v->{if(online)goOffline();else startLocationUpdates();});content.addView(status);driverOffer();partnerOrdersSection(2);activeOrderPreview();}else{quick("Вызвать помощь","Рассчитать стоимость и создать заказ",()->startActivity(new Intent(this,CreateOrderActivity.class)));quick("Мои заказы","Отслеживание, стоимость и рейтинг",()->orders());preview();}}
  void driverHomeStats(){JSONObject ui=data.optJSONObject("ui"),h=ui==null?null:ui.optJSONObject("home"),ex=data.optJSONObject("executor"),f=data.optJSONObject("finance"),summary=data.optJSONObject("stats");double rating=h==null?(ex==null?5:ex.optDouble("rating",5)):h.optDouble("rating",5);int completed=h==null?(summary==null?0:summary.optInt("done")):h.optInt("completed_orders");double available=h==null?(f==null?0:f.optDouble("available",0)):h.optDouble("available_balance",0);double today=h==null?0:h.optDouble("today_earnings",0);LinearLayout stats=Ui.card(this);stats.addView(Ui.text(this,"★ "+oneDecimal(rating)+"     "+completed+" заказов",18,true));stats.addView(Ui.text(this,"Доступно "+Math.round(available)+" ₽",21,true));stats.addView(Ui.muted(this,"Сегодня заработано: "+Math.round(today)+" ₽",14));content.addView(stats);}
  void activeOrderPreview(){JSONArray a=data.optJSONArray("orders");if(a==null)return;for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;String s=o.optString("status");if(!Arrays.asList("assigned","enroute","arrived","loading","in_transit").contains(s))continue;LinearLayout c=Ui.card(this);c.addView(Ui.text(this,"Активный заказ",19,true));order(c,o);content.addView(c);return;}}
@@ -33,13 +34,17 @@ public class DashboardActivity extends Activity implements LocationListener{
  void openOrder(String id){Intent in=new Intent(this,OrderDetailActivity.class);in.putExtra("order_id",id);in.putExtra("role",role);startActivity(in);}
  void partnerOrdersSection(int limit){
   JSONArray rows=data.optJSONArray("partner_orders");
-  if(rows==null||rows.length()==0)return;
-  java.util.List<JSONObject> sorted=sortedPartnerOrders(rows);
+  JSONObject counts=data.optJSONObject("partner_order_counts");
+  int available=counts==null?0:counts.optInt("available",0),busy=counts==null?0:counts.optInt("busy",0);
+  if((rows==null||rows.length()==0)&&available+busy==0)return;
   content.addView(Ui.text(this,"Заявки партнёра",19,true));
-  content.addView(Ui.muted(this,"Сначала ближайшие свободные • без стоимости и комиссии AV Rescue",13));
-  int count=limit>0?Math.min(limit,sorted.size()):sorted.size();
-  for(int i=0;i<count;i++)content.addView(partnerOrderCard(sorted.get(i)));
-  if(limit>0&&sorted.size()>limit){Button all=Ui.darkButton(this,"Показать все заявки партнёра");all.setOnClickListener(v->orders());content.addView(all);}
+  content.addView(Ui.muted(this,"Свободных заявок: "+available+" • занято другими: "+busy,13));
+  if(rows!=null&&rows.length()>0){
+   int shown=limit>0?Math.min(limit,rows.length()):rows.length();
+   content.addView(Ui.muted(this,"Доступные заявки по дорожному маршруту: "+rows.length(),12));
+   for(int i=0;i<shown;i++)content.addView(partnerOrderCard(rows.optJSONObject(i)));
+   if(shown<rows.length()){Button all=Ui.darkButton(this,"Показать все доступные ("+rows.length()+")");all.setOnClickListener(v->orders());content.addView(all);}
+  }
  }
  java.util.List<JSONObject> sortedPartnerOrders(JSONArray rows){
   java.util.ArrayList<JSONObject> sorted=new java.util.ArrayList<>();for(int i=0;i<rows.length();i++){JSONObject order=rows.optJSONObject(i);if(order!=null)sorted.add(order);}final Location current=freshDriverLocation();
@@ -51,11 +56,11 @@ public class DashboardActivity extends Activity implements LocationListener{
   LinearLayout card=Ui.card(this);boolean mine=order.optBoolean("is_mine");String status=order.optString("status","available");
   String title=order.optString("service","Эвакуация");String vehicle=order.optString("vehicle","");String plate=order.optString("license_plate","");
   card.addView(Ui.text(this,title,18,true));
-  String statusText=mine?"● ВЫ ВЗЯЛИ ЗАЯВКУ":"claimed".equals(status)?"● Взял: "+order.optString("assigned_worker_name","водитель"):"● СВОБОДНА";
+  String statusText=mine?"● ВАША ТЕКУЩАЯ ЗАЯВКА":"● СВОБОДНАЯ ЗАЯВКА";
   card.addView(Ui.chip(this,statusText,mine||"available".equals(status)));
   card.addView(Ui.muted(this,"Подача: "+valueOr(order.optString("pickup_address",""),"Координаты на карте"),14));
-  Location current=freshDriverLocation();
-  if(current!=null&&order.optDouble("pickup_lat",0)!=0&&order.optDouble("pickup_lng",0)!=0){float[] result=new float[1];Location.distanceBetween(current.getLatitude(),current.getLongitude(),order.optDouble("pickup_lat"),order.optDouble("pickup_lng"),result);double km=Math.round(result[0]/100.0)/10.0;card.addView(Ui.chip(this,"≈ "+km+" км по прямой • маршрут в Навигаторе",true));}
+  double roadKm=order.optDouble("distance_km",-1);
+  if(roadKm>=0){String source=order.optString("distance_source","");card.addView(Ui.chip(this,"≈ "+oneDecimal(roadKm)+("estimated".equals(source)?" км (оценка)":" км по дорогам"),true));}
   else card.addView(Ui.muted(this,"GPS уточняется • расстояние покажет Навигатор",13));
   double lat=order.optDouble("pickup_lat",0),lng=order.optDouble("pickup_lng",0);String address=order.optString("pickup_address","");
   if((lat!=0&&lng!=0)||!address.isEmpty()){Button map=Ui.darkButton(this,"Маршрут к подаче");map.setOnClickListener(v->openYandexMap(lat,lng,address));card.addView(map);}
@@ -70,7 +75,7 @@ public class DashboardActivity extends Activity implements LocationListener{
   Button show=Ui.darkButton(this,"Открыть заявку");show.setOnClickListener(v->{boolean opening=details.getVisibility()!=android.view.View.VISIBLE;details.setVisibility(opening?android.view.View.VISIBLE:android.view.View.GONE);show.setText(opening?"Скрыть детали":"Открыть заявку");});card.addView(show);card.addView(details);
   String id=order.optString("id","");
   if(mine){Button release=Ui.darkButton(this,"Вернуть в общий список");release.setOnClickListener(v->partnerAction(id,"release",release));card.addView(release);}
-  else if("available".equals(status)){Button claim=Ui.button(this,"Взять в работу");claim.setOnClickListener(v->partnerAction(id,"claim",claim));card.addView(claim);}
+  else if("available".equals(status)){Button claim=Ui.button(this,order.optBoolean("can_claim",false)?"Взять в работу":"Ожидает очереди");claim.setEnabled(order.optBoolean("can_claim",false));claim.setOnClickListener(v->partnerAction(id,"claim",claim));card.addView(claim);}
   return card;
  }
  String valueOr(String value,String fallback){return value==null||value.trim().isEmpty()?fallback:value;}

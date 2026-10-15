@@ -86,9 +86,11 @@ public class OrderDetailActivity extends Activity {
   String currentStatus=order.optString("status","");int eta=order.optInt("estimated_arrival_min",0);
   if(eta>0&&!"done".equals(currentStatus)&&!"completed".equals(currentStatus)&&!"cancelled".equals(currentStatus)){String etaTitle="in_transit".equals(currentStatus)?"До адреса назначения ≈ ":"До адреса подачи ≈ ";summary.addView(Ui.chip(this,etaTitle+eta+" мин",true));}
   box.addView(summary);
+  String payStatus=order.optString("payment_status","unpaid");boolean payable=price>0&&!"paid".equals(payStatus)&&!"refunded".equals(payStatus)&&!"cancelled".equals(currentStatus);
+  if(payable&&"executor".equals(role)&&order.optString("user_id","").isEmpty()){LinearLayout payment=Ui.card(this);payment.addView(Ui.text(this,"Безналичная оплата",18,true));payment.addView(Ui.muted(this,"Откройте банковский QR и передайте экран клиенту.",13));Button qr=Ui.button(this,"Показать QR для оплаты");qr.setOnClickListener(v->createPayment(qr,true));payment.addView(qr);box.addView(payment);}
 
   String worker=order.optString("assigned_worker_name","");
-  if(!worker.isEmpty()){
+  if(!"executor".equals(role)&&!worker.isEmpty()){
     LinearLayout w=Ui.card(this);
     w.addView(Ui.text(this,"Исполнитель",18,true));
     w.addView(Ui.text(this,worker,16,true));double wr=order.optDouble("worker_rating",0);if(wr>0)w.addView(Ui.muted(this,"Рейтинг "+wr,14));
@@ -151,6 +153,7 @@ public class OrderDetailActivity extends Activity {
   Intent intent=new Intent(Intent.ACTION_VIEW,uri);intent.setPackage("ru.yandex.yandexnavi");
   try{startActivity(intent);}catch(Exception e){Uri web=(lat!=0&&lng!=0)?Uri.parse("https://yandex.ru/maps/?ll="+lng+"%2C"+lat+"&z=16&pt="+lng+"%2C"+lat+"%2Cpm2rdm"):Uri.parse("https://yandex.ru/maps/?text="+Uri.encode(address));try{startActivity(new Intent(Intent.ACTION_VIEW,web));}catch(Exception ignored){Toast.makeText(this,"Не удалось открыть Яндекс Карты",Toast.LENGTH_SHORT).show();}}
  }
+ void createPayment(Button button,boolean driverQr){button.setEnabled(false);button.setText("Создаём оплату…");new Thread(()->{try{JSONObject r=ApiClient.post("/api/payment_create.php",new JSONObject().put("order_id",orderId));runOnUiThread(()->{button.setEnabled(true);button.setText("Показать QR для оплаты");if(r.optBoolean("ok")){Intent in=new Intent(this,PaymentActivity.class);in.putExtra("payment_url",r.optString("payment_url"));in.putExtra("driver_qr",driverQr);startActivity(in);}else Toast.makeText(this,r.optString("error","Не удалось создать оплату"),Toast.LENGTH_LONG).show();});}catch(Exception e){runOnUiThread(()->{button.setEnabled(true);button.setText("Показать QR для оплаты");Toast.makeText(this,"Нет связи с AV Rescue",Toast.LENGTH_LONG).show();});}}).start();}
 
 
  void autoDispatch(){new Thread(()->{try{JSONObject r=ApiClient.post("/api/mobile_auto_dispatch.php",new JSONObject().put("order_id",orderId));runOnUiThread(()->{Toast.makeText(this,r.optBoolean("assigned")?"Ближайший водитель назначен":"Свободных водителей пока нет",Toast.LENGTH_LONG).show();load();});}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Нет связи",Toast.LENGTH_SHORT).show());}}).start();}

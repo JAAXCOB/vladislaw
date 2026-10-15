@@ -76,6 +76,8 @@ public class OrderDetailActivity extends Activity {
   String currentStatus=order.optString("status","");int eta=order.optInt("estimated_arrival_min",0);
   if(eta>0&&!"done".equals(currentStatus)&&!"completed".equals(currentStatus)&&!"cancelled".equals(currentStatus)){String etaTitle="in_transit".equals(currentStatus)?"До адреса назначения ≈ ":"До адреса подачи ≈ ";summary.addView(Ui.chip(this,etaTitle+eta+" мин",true));}
   box.addView(summary);
+  String payStatus=order.optString("payment_status","unpaid");boolean payable=price>0&&!"paid".equals(payStatus)&&!"refunded".equals(payStatus)&&!"cancelled".equals(currentStatus);
+  if(payable&&"client".equals(role)){LinearLayout payment=Ui.card(this);payment.addView(Ui.text(this,"Оплата картой или СБП",18,true));payment.addView(Ui.muted(this,"Банк откроет защищённую форму. При доступности карту можно сохранить для следующих заказов.",13));Button pay=Ui.button(this,"Оплатить "+Math.round(price)+" ₽");pay.setOnClickListener(v->createPayment(pay));payment.addView(pay);box.addView(payment);}
 
   String worker=order.optString("assigned_worker_name","");
   if(!worker.isEmpty()){
@@ -140,6 +142,7 @@ public class OrderDetailActivity extends Activity {
   Intent intent=new Intent(Intent.ACTION_VIEW,uri);intent.setPackage("ru.yandex.yandexnavi");
   try{startActivity(intent);}catch(Exception e){Uri web=(lat!=0&&lng!=0)?Uri.parse("https://yandex.ru/maps/?ll="+lng+"%2C"+lat+"&z=16&pt="+lng+"%2C"+lat+"%2Cpm2rdm"):Uri.parse("https://yandex.ru/maps/?text="+Uri.encode(address));try{startActivity(new Intent(Intent.ACTION_VIEW,web));}catch(Exception ignored){Toast.makeText(this,"Не удалось открыть Яндекс Карты",Toast.LENGTH_SHORT).show();}}
  }
+ void createPayment(Button button){button.setEnabled(false);button.setText("Создаём платёж…");new Thread(()->{try{JSONObject r=ApiClient.post("/api/payment_create.php",new JSONObject().put("order_id",orderId));runOnUiThread(()->{button.setEnabled(true);button.setText("Оплатить картой или СБП");if(r.optBoolean("ok")){Intent in=new Intent(this,PaymentActivity.class);in.putExtra("payment_url",r.optString("payment_url"));startActivity(in);}else Toast.makeText(this,r.optString("error","Не удалось создать платёж"),Toast.LENGTH_LONG).show();});}catch(Exception e){runOnUiThread(()->{button.setEnabled(true);button.setText("Оплатить картой или СБП");Toast.makeText(this,"Нет связи с AV Rescue",Toast.LENGTH_LONG).show();});}}).start();}
 
 
  void autoDispatch(){new Thread(()->{try{JSONObject r=ApiClient.post("/api/mobile_auto_dispatch.php",new JSONObject().put("order_id",orderId));runOnUiThread(()->{Toast.makeText(this,r.optBoolean("assigned")?"Ближайший водитель назначен":"Свободных водителей пока нет",Toast.LENGTH_LONG).show();load();});}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Нет связи",Toast.LENGTH_SHORT).show());}}).start();}
