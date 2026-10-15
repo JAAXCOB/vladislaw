@@ -20,10 +20,10 @@
 | Контур | Источник | Состояние |
 |---|---|---|
 | MAX, Excel-интеграция, deploy, AI controller | `work/vladislaw` | Git, ветка `fix/safe-max-deploy-20261013`; сохранить незакоммиченные изменения |
-| Android Driver | `work/driver-src/AVRescueAndroid` | Текущий исходник 2.4.0 (40), пока без Git |
+| Android Driver | `work/driver-src/AVRescueAndroid` | Git checkpoint `de83464`; GitHub-ветка `codex/android-driver-2.4.0` |
 | Старый Android для сравнения | `work/driver-inspect-current` | Не использовать для релиза |
 | Server hotfix | `work/server-hotfix-9.0` | Локально подготовлен, установка не подтверждена |
-| Android-сборки | `outputs/` | Есть debug-релизы и старые APK; нет подписанного 2.4.0 |
+| Android-сборки | `outputs/` | Сборка #103 успешна; есть свежие APK/debug AAB 2.4.0, но нет подписанного RuStore-релиза |
 | Синхронизированные материалы | `sources/` | Только чтение |
 
 Архив `AV_Rescue_8_1_FLEET_TAB_FIX.zip` ранее назывался исходной сборкой, но в
@@ -64,8 +64,10 @@
   выплату и их статусы представлены в интерфейсе.
 - Регистрация клиентов, исполнителей и B2B; загрузка документов и категорий.
 
-Ограничение: `AVR_Driver_2.4.0-debug.aab` не является RuStore-релизом. Release
-keystore в доступных папках не найден.
+Проверочная сборка GitHub Actions `#103` от 15 октября 2026 года успешна;
+`outputs/AVR_Driver_2.4.0.apk` и debug AAB сохранены локально. Ограничение:
+debug AAB не является RuStore-релизом. Release keystore в доступных папках и
+профиле пользователя не найден.
 
 ### 3.2 Серверный hotfix 9.0 — подготовлено локально
 
