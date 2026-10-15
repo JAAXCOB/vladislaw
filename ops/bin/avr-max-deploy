@@ -87,6 +87,14 @@ fi
 python3 -m venv "$staging/.venv"
 "$staging/.venv/bin/python" -m pip install --disable-pip-version-check \
   --no-index --find-links "$staging/wheelhouse" -r "$staging/requirements.txt"
+# Console-script shebangs contain the temporary staging path. Replace the
+# service entry point with a relocatable wrapper before the release is moved.
+cat > "$staging/.venv/bin/uvicorn" <<'EOF'
+#!/bin/sh
+venv_bin=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$venv_bin/python" -m uvicorn "$@"
+EOF
+chmod 0755 "$staging/.venv/bin/uvicorn"
 timeout 10m "$staging/.venv/bin/python" -m pytest -q "$staging/tests"
 sudo -n "$RESTART_HELPER" --check
 ln -s "$APP_ROOT/data" "$staging/data"

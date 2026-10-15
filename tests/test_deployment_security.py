@@ -93,6 +93,7 @@ def test_deployer_cannot_read_application_secrets() -> None:
     deployer = (ROOT / "ops/bin/avr-max-deploy").read_text(encoding="utf-8")
     restart_helper = (ROOT / "ops/sbin/avr-max-restart").read_text(encoding="utf-8")
     assert "BACKUP_ENV=/etc/avr-max-deploy.env" in deployer
+    assert 'exec "$venv_bin/python" -m uvicorn "$@"' in deployer
     assert 'sudo -n "$RESTART_HELPER" --check' in deployer
     assert '"$staging/scripts/verify_excel_backup.py"' not in deployer
     assert "BACKUP_ENV=/etc/avr-max-deploy.env" in restart_helper
