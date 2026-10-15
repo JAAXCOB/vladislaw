@@ -54,7 +54,7 @@ final_release="$RELEASES_DIR/$release_id"
 [ ! -e "$final_release" ] || fail "release already exists: $release_id"
 [ -L "$CURRENT_LINK" ] || fail "current release symlink is missing; complete the bootstrap migration first"
 
-exec 9>"$APP_ROOT/.deploy/deploy.lock"
+exec 9>"$INCOMING_DIR/deploy.lock"
 flock -n 9 || fail "another deployment is already running"
 printf '%s  %s\n' "$expected_sha" "$bundle" | sha256sum -c -
 

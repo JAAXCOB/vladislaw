@@ -88,6 +88,8 @@ def test_deployer_cannot_read_application_secrets() -> None:
     assert "BACKUP_ENV=/etc/avr-max-deploy.env" in deployer
     assert '--env-file "$BACKUP_ENV"' in deployer
     assert '--env-file "$APP_ROOT/.env"' not in deployer
+    assert 'exec 9>"$INCOMING_DIR/deploy.lock"' in deployer
+    assert 'exec 9>"$APP_ROOT/.deploy/deploy.lock"' not in deployer
 
 
 @pytest.mark.skipif(os.name == "nt", reason="bash validation runs on Linux and GitHub Actions")
