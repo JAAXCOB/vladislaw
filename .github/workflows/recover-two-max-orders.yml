@@ -30,9 +30,12 @@ jobs:
           install -d -m 0700 "$HOME/.ssh"
           printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
           chmod 0600 "$HOME/.ssh/known_hosts"
-          remote=/tmp/avr-reconcile-n384-${GITHUB_RUN_ID}.py
-          sshpass -e scp -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" scripts/reconcile_new_orders.py root@130.49.173.150:"$remote"
-          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=20 root@130.49.173.150 "REMOTE_SCRIPT='$remote' python3 -B -" <<'PY'
+          stage=/tmp/avr-reconcile-stage-${GITHUB_RUN_ID}
+          tar -czf /tmp/avr-reconcile-stage.tgz scripts/reconcile_new_orders.py webhook
+          sshpass -e ssh -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 "install -d -m 0700 '$stage'"
+          sshpass -e scp -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" /tmp/avr-reconcile-stage.tgz root@130.49.173.150:"$stage/package.tgz"
+          sshpass -e ssh -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 "tar -xzf '$stage/package.tgz' -C '$stage'"
+          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=20 root@130.49.173.150 "REMOTE_ROOT='$stage' REMOTE_SCRIPT='$stage/scripts/reconcile_new_orders.py' python3 -B -" <<'PY'
           import hashlib
           import json
           import os
@@ -75,13 +78,14 @@ jobs:
           if "python" not in executable.name.casefold():
               executable = executable.parent / "python"
           child_env = dict(env)
-          child_env["PYTHONPATH"] = str(cwd) + os.pathsep + child_env.get("PYTHONPATH", "")
+          child_env["PYTHONPATH"] = os.environ["REMOTE_ROOT"] + os.pathsep + str(cwd) + os.pathsep + child_env.get("PYTHONPATH", "")
 
           queue_value = env.get("AV_RESCUE_SYNC_QUEUE_PATH", "data/av_rescue_sync_queue.json")
           queue = Path(queue_value)
           if not queue.is_absolute():
               queue = cwd / queue
           dead = queue.with_name(queue.stem + ".dead" + queue.suffix)
+          child_env["AV_RESCUE_SYNC_QUEUE_PATH"] = str(queue)
           backup = Path("/opt/vladislaw/backups") / ("n384-replay-" + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
           backup.mkdir(parents=True, mode=0o700)
           for path in (queue, dead):
@@ -171,7 +175,7 @@ jobs:
               "backup_created": backup.exists(),
           }
           print("APPROVED_N384_RECOVERY " + json.dumps(result, ensure_ascii=False))
-          Path(os.environ["REMOTE_SCRIPT"]).unlink(missing_ok=True)
+          shutil.rmtree(os.environ["REMOTE_ROOT"], ignore_errors=True)
           if not all((
               result["ok"], result["excel_unchanged"], result["payroll_unchanged"],
               result["max_webhook_active"], result["backup_created"],
