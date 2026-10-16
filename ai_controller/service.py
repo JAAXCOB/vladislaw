@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
 import logging
 
 import httpx
@@ -22,7 +23,13 @@ class ControllerService:
     def __init__(self, settings: ControllerSettings) -> None:
         self.settings = settings
         self.settings.prepare_directories()
-        self.client = httpx.AsyncClient(timeout=settings.request_timeout_seconds)
+        # httpx defaults to certifi, while MAX platform-api2 uses a chain that is
+        # trusted by the host OS certificate store. Reuse that system store so
+        # the controller behaves like curl/urllib on the IHC host.
+        self.client = httpx.AsyncClient(
+            timeout=settings.request_timeout_seconds,
+            verify=ssl.create_default_context(),
+        )
         self.audit = AuditLog(
             settings.data_dir / "audit.jsonl",
             settings.audit_hmac_key.get_secret_value(),
