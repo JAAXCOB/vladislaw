@@ -215,6 +215,60 @@ def _deliver_with_retry(payload: dict[str, Any]) -> None:
         _write_queue(pending, path)
 
 
+def retry_pending_syncs(
+    *,
+    max_items: int = 10,
+    force: bool = False,
+    source_ids: set[str] | None = None,
+) -> dict[str, int]:
+    """Retry queued partner events even when MAX produced no new message.
+
+    The regular reconciliation timer calls this on every run. ``force`` and
+    ``source_ids`` are intended for a tightly scoped operator recovery of one
+    already queued MAX event; the default respects the queue backoff.
+    """
+    path = _queue_path()
+    result = {"attempted": 0, "delivered": 0, "dead_lettered": 0, "remaining": 0}
+    with file_lock(path):
+        pending = _read_queue(path) if path.exists() else []
+        if max_items <= 0:
+            result["remaining"] = len(pending)
+            return result
+        now = int(time.time())
+        selected: list[dict[str, Any]] = []
+        for item in pending:
+            payload = item.get("payload", {})
+            source_id = str(payload.get("source_id") or "")
+            if source_ids is not None and source_id not in source_ids:
+                continue
+            if not force and int(item.get("next_attempt_at", 0)) > now:
+                continue
+            selected.append(item)
+            if len(selected) >= max_items:
+                break
+
+        for item in selected:
+            pending.remove(item)
+            result["attempted"] += 1
+            queued_payload = item.get("payload", {})
+            if _post(queued_payload):
+                result["delivered"] += 1
+                continue
+            failed = _failure_record(queued_payload, item)
+            if failed["attempts"] >= MAX_DELIVERY_ATTEMPTS:
+                dead_path = _dead_queue_path()
+                dead = _read_queue(dead_path) if dead_path.exists() else []
+                dead.append(failed)
+                _write_queue(dead, dead_path)
+                result["dead_lettered"] += 1
+            else:
+                pending.append(failed)
+
+        _write_queue(pending, path)
+        result["remaining"] = len(pending)
+    return result
+
+
 def sync_extracted_job(
     job: ExtractedJob,
     chat_id: int | str | None,
