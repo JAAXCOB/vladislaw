@@ -18,7 +18,7 @@ jobs:
       - name: Inspect controller and Caddy without changes
         shell: bash
         env:
-          SSHPASS: ${{ secrets.SERVER_PASSWORD ]]
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
         run: |
           set -euo pipefail
           set +x
