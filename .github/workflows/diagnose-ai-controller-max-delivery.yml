@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Read-only MAX message identity diagnosis
+      - name: Read-only MAX audit diagnosis
         shell: bash
         env:
           SSHPASS: ${{ secrets.SERVER_PASSWORD }}
@@ -38,48 +38,25 @@ jobs:
             -o ConnectTimeout=20 \
             root@130.49.173.150 'python3 -B -' <<'PY'
           import json
-          import urllib.parse
-          import urllib.request
           from pathlib import Path
 
-          env = {}
-          for raw in Path("/opt/vladislaw/.env.ai-controller").read_text(errors="replace").splitlines():
-              if "=" in raw and not raw.lstrip().startswith("#"):
-                  key, value = raw.split("=", 1)
-                  env[key.strip()] = value.strip()
-          token = env["AVR_AI_MAX_CONTROL_TOKEN"]
-          chat_id = env["AVR_AI_MAX_CONTROL_CHAT_ID"]
-          configured = {
-              value.strip()
-              for value in env.get("AVR_AI_MAX_CONTROL_USER_IDS", "").split(",")
-              if value.strip()
-          }
-          headers = {"Authorization": token}
-
-          def get(url):
-              request = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(request, timeout=20) as response:
-                  return json.loads(response.read())
-
-          base = "https://platform-api2.max.ru"
-          chat = get(base + "/chats/" + urllib.parse.quote(chat_id, safe=""))
-          me = get(base + "/me")
-          query = urllib.parse.urlencode({"chat_id": chat_id, "count": 20})
-          messages = get(base + "/messages?" + query).get("messages") or []
-          bot_id = str(me.get("user_id") or "")
-          peers = []
-          for message in messages:
-              sender = message.get("sender") or {}
-              sender_id = str(sender.get("user_id") or "")
-              if sender_id and sender_id != bot_id:
-                  peers.append(sender_id)
-          result = {
-              "chat_type": chat.get("type"),
-              "dialog_peer_matches_config": str((chat.get("dialog_with_user") or {}).get("user_id") or "") in configured,
-              "message_count": len(messages),
-              "human_message_count": len(peers),
-              "all_human_senders_match_config": bool(peers) and all(value in configured for value in peers),
-              "latest_human_sender_matches_config": bool(peers) and peers[0] in configured,
-          }
-          print("AVR_MAX_MESSAGES " + json.dumps(result, ensure_ascii=False))
+          audit = Path("/opt/vladislaw/ai-controller-data/audit.jsonl")
+          events = []
+          for raw in audit.read_text(errors="replace").splitlines()[-80:]:
+              try:
+                  item = json.loads(raw)
+              except json.JSONDecodeError:
+                  continue
+              if item.get("event") not in {"max_control_webhook", "max_control_command"}:
+                  continue
+              details = item.get("details") or {}
+              events.append({
+                  "timestamp": item.get("timestamp"),
+                  "event": item.get("event"),
+                  "outcome": item.get("outcome"),
+                  "chat_match": details.get("chat_match"),
+                  "user_match": details.get("user_match"),
+                  "processed": details.get("processed"),
+              })
+          print("AVR_MAX_SAFE_AUDIT " + json.dumps(events[-12:], ensure_ascii=False))
           PY
