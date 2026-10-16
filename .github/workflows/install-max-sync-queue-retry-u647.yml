@@ -1,4 +1,4 @@
-name: Install MAX sync queue retry and recover U647SE797 # retry 5
+name: Install MAX sync queue retry and recover U647SE797 # retry 6
 
 on:
   push:
@@ -158,6 +158,9 @@ jobs:
           printf '%s\n' "$replay_output"
           test "$replay_status" = 0
 
+          pid="$(systemctl show max-webhook.service -p MainPID --value)"
+          test -n "$pid"
+          test "$pid" != 0
           "$py" - "$pid" "$backup/protected.before.json" "$app_root" <<'PY'
           import hashlib, json, os, sys
           from pathlib import Path
