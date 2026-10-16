@@ -25,6 +25,11 @@ ORDER = """Новая заявка
 Куда: Сервис (Москва, улица Б)
 """
 
+CLOSE = """Заявка закрыта
+Х311ТВ797
+Эвакуация 4500
+"""
+
 
 def test_reconcile_uses_stable_mid_and_skips_unchanged(monkeypatch) -> None:
     synchronized: list[tuple[str, str]] = []
@@ -80,6 +85,21 @@ def test_only_mid_replays_exact_source_message(monkeypatch) -> None:
 
     assert result["replayed"] == 1
     assert synchronized == ["wanted"]
+
+
+def test_reconcile_replays_edited_close_event(monkeypatch) -> None:
+    synchronized: list[str] = []
+    monkeypatch.setattr(
+        module,
+        "sync_extracted_job",
+        lambda job, chat_id, mid, text: synchronized.append(mid),
+    )
+
+    result = module.reconcile_messages([_message("close-mid", CLOSE)], "-10", {})
+
+    assert result["closed_orders"] == 1
+    assert result["replayed"] == 1
+    assert synchronized == ["close-mid"]
 
 
 def test_bootstrap_records_without_site_sync(monkeypatch) -> None:
