@@ -74,6 +74,9 @@ jobs:
           api_base = env.get("MAX_API_BASE", "https://platform-api2.max.ru").rstrip("/")
           expected_url = env.get("MAX_WEBHOOK_URL", "")
           chat_ids = [x.strip() for x in env.get("MAX_CHAT_ID", "").split(",") if x.strip()]
+          bot_id = 0
+          endpoint_status = "not_configured"
+          caddy_active = run(["systemctl", "is-active", "caddy.service"]).stdout.strip() == "active"
 
           def api_get(path, query=None):
               url = api_base + path
@@ -103,9 +106,26 @@ jobs:
           except Exception as exc:
               subscription_error = type(exc).__name__
 
+          try:
+              _, me_payload = api_get("/me")
+              bot_id = int(me_payload.get("user_id") or 0)
+          except Exception:
+              pass
+          if expected_url:
+              try:
+                  request = urllib.request.Request(expected_url, method="GET")
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      endpoint_status = f"http_{response.status}"
+              except urllib.error.HTTPError as exc:
+                  endpoint_status = f"http_{exc.code}"
+              except Exception as exc:
+                  endpoint_status = type(exc).__name__
+
           target_ts = 0
+          target_sender_category = "unknown"
           later_messages = 0
           later_plate_like_messages = 0
+          later_plate_sender_categories = set()
           messages_read_ok = False
           plate_pattern = re.compile(r"[А-ЯA-Z]\s*\d{3}\s*[А-ЯA-Z]{2}\s*\d{2,3}", re.I)
           try:
@@ -117,7 +137,16 @@ jobs:
               for message in all_messages:
                   text = str((message.get("body") or {}).get("text") or "")
                   if norm(TARGET) in norm(text) or LATIN in norm(text):
-                      target_ts = max(target_ts, int(message.get("timestamp") or 0))
+                      candidate_ts = int(message.get("timestamp") or 0)
+                      if candidate_ts >= target_ts:
+                          target_ts = candidate_ts
+                          sender = message.get("sender") or {}
+                          sender_id = int(sender.get("user_id") or 0)
+                          target_sender_category = (
+                              "operational_bot" if bot_id and sender_id == bot_id
+                              else "other_bot" if sender.get("is_bot") is True
+                              else "human_or_unmarked"
+                          )
               if target_ts:
                   for message in all_messages:
                       ts = int(message.get("timestamp") or 0)
@@ -126,6 +155,13 @@ jobs:
                           text = str((message.get("body") or {}).get("text") or "")
                           if plate_pattern.search(text):
                               later_plate_like_messages += 1
+                              sender = message.get("sender") or {}
+                              sender_id = int(sender.get("user_id") or 0)
+                              later_plate_sender_categories.add(
+                                  "operational_bot" if bot_id and sender_id == bot_id
+                                  else "other_bot" if sender.get("is_bot") is True
+                                  else "human_or_unmarked"
+                              )
           except Exception:
               pass
 
@@ -165,6 +201,12 @@ jobs:
                   "service_active": service["active"],
                   "restart_count": service["restart_count"],
                   "active_since_present": bool(service["active_since"]),
+                  "started_before_target": bool(
+                      target_ts and service["active_since"]
+                      and datetime.datetime.strptime(
+                          service["active_since"].split(" UTC")[0], "%a %Y-%m-%d %H:%M:%S"
+                      ).replace(tzinfo=datetime.timezone.utc).timestamp() * 1000 < target_ts
+                  ),
                   "process_present": operational_pid > 0,
               },
               "controller_is_separate": {
@@ -173,6 +215,10 @@ jobs:
                   "tokens_are_different": bool(
                       operational_token and controller_token and operational_token != controller_token
                   ),
+              },
+              "public_route": {
+                  "caddy_active": caddy_active,
+                  "endpoint_get_status": endpoint_status,
               },
               "subscription": {
                   "read_ok": subscriptions_ok,
@@ -184,10 +230,12 @@ jobs:
               },
               "after_missing_order": {
                   "target_found_in_chat": bool(target_ts),
+                  "target_sender_category": target_sender_category,
                   "target_seen_by_webhook": target_seen_in_journal,
                   "messages_read_ok": messages_read_ok,
                   "later_messages_in_chat": later_messages,
                   "later_plate_like_messages": later_plate_like_messages,
+                  "later_plate_sender_categories": sorted(later_plate_sender_categories),
                   "webhook_message_events": webhook_events_after,
                   "site_sync_delivered": sync_delivered_after,
                   "site_sync_errors": site_request_errors_after,
