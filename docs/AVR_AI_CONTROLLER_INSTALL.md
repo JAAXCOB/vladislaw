@@ -36,7 +36,8 @@ free -h
 df -h /opt/vladislaw
 ```
 
-The safe release Python version must match the server. Leave the existing `.env`,
+The safe release Python version must match the server (currently Python 3.10 on
+IHC). Leave the existing `.env`,
 `data/excel`, Excel workbooks, MAX token, Caddy configuration, and
 `max-webhook.service` unchanged.
 
