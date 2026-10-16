@@ -71,6 +71,11 @@ class MaxControlState:
             connection.commit()
             return True
 
+    def release_nonce(self, nonce: str) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM command_nonce WHERE nonce = ?", (nonce,))
+            connection.commit()
+
 
 class MaxControlAdapter:
     def __init__(
@@ -147,8 +152,20 @@ class MaxControlAdapter:
             self.audit.append("max_control_command", f"max-user:{user_id}", "replay", {"command": command})
             return False
 
-        response_text = await self.handler(command)
-        await self._send(chat_id, response_text)
+        try:
+            response_text = await self.handler(command)
+            await self._send(chat_id, response_text)
+        except Exception as exc:
+            # Read-only control commands are safe to retry. Do not permanently
+            # burn the nonce when the reply could not be delivered.
+            self.state.release_nonce(nonce)
+            self.audit.append(
+                "max_control_command",
+                f"max-user:{user_id}",
+                "delivery_failed",
+                {"command": command, "error_type": type(exc).__name__},
+            )
+            raise
         self.audit.append("max_control_command", f"max-user:{user_id}", "completed", {"command": command})
         return True
 
