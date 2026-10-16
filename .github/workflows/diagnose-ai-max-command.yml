@@ -1,0 +1,69 @@
+name: Diagnose AVR AI MAX command
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/diagnose-ai-max-command.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Count recent controller outcomes
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' \
+            '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' \
+            >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -o ConnectTimeout=20 \
+            root@130.49.173.150 'python3 -B -' <<'PY'
+          import datetime
+          import json
+          import subprocess
+          from collections import Counter
+          from pathlib import Path
+
+          cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=15)
+          counts = Counter()
+          audit = Path("/opt/vladislaw/ai-controller-data/audit.jsonl")
+          if audit.is_file():
+              for raw in audit.read_text(errors="replace").splitlines()[-200:]:
+                  try:
+                      item = json.loads(raw)
+                      stamp = datetime.datetime.fromisoformat(str(item.get("timestamp")))
+                  except (ValueError, TypeError, json.JSONDecodeError):
+                      continue
+                  if stamp < cutoff:
+                      continue
+                  event = str(item.get("event") or "")
+                  if event in {"max_control_webhook", "max_control_command"}:
+                      counts[event + ":" + str(item.get("outcome") or "unknown")] += 1
+          active = subprocess.run(
+              ["systemctl", "is-active", "avr-ai-controller.service"],
+              capture_output=True, text=True, timeout=10,
+          ).stdout.strip()
+          print("AVR_MAX_AGGREGATE " + json.dumps({
+              "service_active": active == "active",
+              "recent_event_counts": dict(sorted(counts.items())),
+          }, ensure_ascii=False))
+          PY
