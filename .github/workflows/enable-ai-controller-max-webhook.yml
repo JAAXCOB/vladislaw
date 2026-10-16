@@ -155,6 +155,23 @@ jobs:
                   return code, {}
               return code, json.loads(body.decode("utf-8"))
 
+          def wait_for_controller():
+              deadline = time.monotonic() + 20
+              last_error = None
+              while time.monotonic() < deadline:
+                  try:
+                      code, _ = http_json(
+                          "GET",
+                          "http://127.0.0.1:8010/health",
+                          expected=(200, 503),
+                      )
+                      if code in {200, 503}:
+                          return
+                  except (OSError, urllib.error.URLError) as exc:
+                      last_error = exc
+                  time.sleep(0.5)
+              raise RuntimeError("controller did not open its loopback listener") from last_error
+
           excel_before = excel_hashes()
           try:
               require_active("avr-ai-controller.service")
@@ -225,6 +242,7 @@ jobs:
               require_active("avr-ai-controller.service")
               require_active("max-webhook.service")
               require_active("caddy.service")
+              wait_for_controller()
 
               loopback = "http://127.0.0.1:8010/max-control/webhook"
               code, _ = http_json("POST", loopback, payload={}, expected=(403,))
