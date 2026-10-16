@@ -1,4 +1,4 @@
-name: Install MAX sync queue retry and recover U647SE797 # retry 4
+name: Install MAX sync queue retry and recover U647SE797 # retry 5
 
 on:
   push:
@@ -30,9 +30,9 @@ jobs:
           printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
           chmod 0600 "$HOME/.ssh/known_hosts"
           stage="/tmp/avr-sync-retry-${GITHUB_RUN_ID}"
-          sshpass -e ssh -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 "install -d -m 0700 '$stage'"
-          sshpass -e scp -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" scripts/reconcile_new_orders.py webhook/av_rescue_client.py root@130.49.173.150:"$stage/"
-          sshpass -e ssh -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 "STAGE='$stage' bash -se" <<'SH'
+          sshpass -e ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 "install -d -m 0700 '$stage'"
+          sshpass -e scp -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" scripts/reconcile_new_orders.py webhook/av_rescue_client.py root@130.49.173.150:"$stage/"
+          sshpass -e ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 "STAGE='$stage' bash -se" <<'SH'
           set -euo pipefail
           pid="$(systemctl show max-webhook.service -p MainPID --value)"
           test -n "$pid"
