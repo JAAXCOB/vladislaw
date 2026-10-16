@@ -49,7 +49,10 @@ jobs:
           printf '%s\n' "$RELEASE_SHA" > build/controller/RELEASE_ID
           printf '3.10\n' > build/controller/PYTHON_VERSION
           tar -C build/controller -czf "build/avr-ai-controller-$RELEASE_SHA.tar.gz" .
-          sha256sum "build/avr-ai-controller-$RELEASE_SHA.tar.gz" > "build/avr-ai-controller-$RELEASE_SHA.tar.gz.sha256"
+          (
+            cd build
+            sha256sum "avr-ai-controller-$RELEASE_SHA.tar.gz" > "avr-ai-controller-$RELEASE_SHA.tar.gz.sha256"
+          )
       - name: Install SSH client
         run: |
           set -euo pipefail
