@@ -122,17 +122,16 @@ def reconcile_messages(
             counts["unchanged"] += 1
             continue
 
-        if only_plates:
-            plate = normalize_plate(text)
-            if plate not in only_plates:
-                continue
-
         if bootstrap:
             state[mid] = fingerprint
             continue
 
         sender_name = message.sender.first_name if message.sender else ""
         job = extract_job(text, sender_name)
+        if only_plates:
+            plate = normalize_plate(job.license_plate or "")
+            if plate not in only_plates:
+                continue
         if job.is_new_job_request:
             counts["new_orders"] += 1
             if not dry_run:
@@ -204,3 +203,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
