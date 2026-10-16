@@ -1,0 +1,149 @@
+name: Compare two MAX orders read-only
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/compare-two-max-orders.yml
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Return algorithm decisions only
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=20 root@130.49.173.150 'python3 -B -' <<'PY'
+          import datetime
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          PLATES = {"loaded_control": "М996ОН797", "missing_order": "А742ОО797"}
+
+          def run(args):
+              return subprocess.run(args, capture_output=True, text=True, timeout=40)
+
+          def norm(value):
+              table = str.maketrans({"A":"А","B":"В","C":"С","E":"Е","H":"Н","K":"К","M":"М","O":"О","P":"Р","T":"Т","X":"Х","Y":"У"})
+              return re.sub(r"[^А-Я0-9]", "", str(value).upper().replace("Ё", "Е").translate(table))
+
+          pid = int(run(["systemctl", "show", "max-webhook.service", "-p", "MainPID", "--value"]).stdout.strip() or "0")
+          env = {}
+          if pid:
+              for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+                  if b"=" in raw:
+                      key, value = raw.split(b"=", 1)
+                      env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+
+          token = env.get("MAX_BOT_TOKEN", "")
+          base = env.get("MAX_API_BASE", "https://platform-api2.max.ru").rstrip("/")
+          chat_ids = [x.strip() for x in env.get("MAX_CHAT_ID", "").split(",") if x.strip()]
+          found = {}
+          for chat_id in chat_ids:
+              query = urllib.parse.urlencode({"chat_id": chat_id, "count": 100})
+              request = urllib.request.Request(base + "/messages?" + query, headers={"Authorization": token})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  messages = json.loads(response.read()).get("messages") or []
+              for message in messages:
+                  text = str((message.get("body") or {}).get("text") or "")
+                  for label, plate in PLATES.items():
+                      if norm(plate) in norm(text):
+                          current = found.get(label)
+                          ts = int(message.get("timestamp") or 0)
+                          if current is None or ts > current["timestamp"]:
+                              found[label] = {
+                                  "timestamp": ts,
+                                  "mid": str((message.get("body") or {}).get("mid") or ""),
+                                  "text": text,
+                              }
+
+          cwd = os.readlink(f"/proc/{pid}/cwd") if pid else ""
+          if cwd:
+              sys.path.insert(0, cwd)
+              os.chdir(cwd)
+
+          local_extract = None
+          import_error = "none"
+          try:
+              from webhook.extractor import _local_extraction
+              local_extract = _local_extraction
+          except Exception as exc:
+              import_error = type(exc).__name__
+
+          report = {"deployed_algorithm_import_error": import_error}
+          for label in PLATES:
+              item = found.get(label)
+              if not item:
+                  report[label] = {"found_in_chat": False}
+                  continue
+              text = item["text"]
+              dt = datetime.datetime.fromtimestamp(item["timestamp"] / 1000, tz=datetime.timezone.utc)
+              since = (dt - datetime.timedelta(minutes=2)).isoformat()
+              until = (dt + datetime.timedelta(minutes=2)).isoformat()
+              journal = run([
+                  "journalctl", "-u", "max-webhook.service",
+                  "--since", since, "--until", until, "--no-pager", "-o", "cat"
+              ]).stdout
+              mid = item["mid"]
+              local_source = "unavailable"
+              local_is_new = None
+              local_needs_review = None
+              local_missing = []
+              if local_extract:
+                  try:
+                      job, local_source = local_extract(text)
+                      if job is not None:
+                          local_is_new = bool(job.is_new_job_request)
+                          local_needs_review = bool(job.needs_review)
+                          local_missing = sorted(str(x) for x in job.missing_required_fields)
+                  except Exception as exc:
+                      local_source = "error_" + type(exc).__name__
+
+              lowered = text.casefold()
+              report[label] = {
+                  "found_in_chat": True,
+                  "minute_msk": (dt + datetime.timedelta(hours=3)).strftime("%H:%M"),
+                  "has_mid": bool(mid),
+                  "webhook_received_mid": bool(mid and mid in journal),
+                  "sync_delivered_for_mid": bool(
+                      mid and any(
+                          mid in line and "AV Rescue sync delivered" in line
+                          for line in journal.splitlines()
+                      )
+                  ),
+                  "sync_delivery_seen_in_window": "AV Rescue sync delivered" in journal,
+                  "extraction_failure_seen_in_window": (
+                      "Extraction failed" in journal or "extract" in journal.lower() and "error" in journal.lower()
+                  ),
+                  "has_pickup_label": bool(re.search(r"(?im)^\s*Откуда\s*:", text)),
+                  "has_destination_label": bool(re.search(r"(?im)^\s*Куда\s*:", text)),
+                  "has_request_marker": ("заяв" in lowered or "эваку" in lowered),
+                  "line_count": len([line for line in text.splitlines() if line.strip()]),
+                  "local_algorithm_source": local_source,
+                  "local_is_new_job": local_is_new,
+                  "local_needs_review": local_needs_review,
+                  "local_missing_fields": local_missing,
+              }
+
+          print("APPROVED_ORDER_COMPARE " + json.dumps(report, ensure_ascii=False))
+          PY
