@@ -1,0 +1,118 @@
+name: Compare MAX message delivery traits
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/compare-max-message-traits.yml
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Return non-sensitive message traits only
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=20 root@130.49.173.150 'python3 -B -' <<'PY'
+          import json
+          import re
+          import subprocess
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          PLATES = {
+              "missing_a742": "А742ОО797",
+              "missing_n384": "Н384РТ797",
+              "loaded_m996": "М996ОН797",
+              "loaded_n230": "Н230НХ797",
+              "loaded_x311": "Х311ТВ797",
+          }
+
+          def run(args):
+              return subprocess.run(args, capture_output=True, text=True, timeout=40)
+
+          def norm(value):
+              table = str.maketrans({"A":"А","B":"В","C":"С","E":"Е","H":"Н","K":"К","M":"М","O":"О","P":"Р","T":"Т","X":"Х","Y":"У"})
+              return re.sub(r"[^А-Я0-9]", "", str(value).upper().replace("Ё", "Е").translate(table))
+
+          def edit_traits(value, prefix=""):
+              found = []
+              if isinstance(value, dict):
+                  for key, item in value.items():
+                      path = f"{prefix}.{key}" if prefix else str(key)
+                      if "edit" in str(key).casefold() or "updat" in str(key).casefold() or "modif" in str(key).casefold():
+                          found.append((path, bool(item)))
+                      found.extend(edit_traits(item, path))
+              elif isinstance(value, list):
+                  for index, item in enumerate(value):
+                      found.extend(edit_traits(item, f"{prefix}[]"))
+              return found
+
+          pid = int(run(["systemctl", "show", "max-webhook.service", "-p", "MainPID", "--value"]).stdout.strip() or "0")
+          env = {}
+          if pid:
+              for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+                  if b"=" in raw:
+                      key, value = raw.split(b"=", 1)
+                      env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+
+          token = env.get("MAX_BOT_TOKEN", "")
+          base = env.get("MAX_API_BASE", "https://platform-api2.max.ru").rstrip("/")
+          chat_ids = [x.strip() for x in env.get("MAX_CHAT_ID", "").split(",") if x.strip()]
+          found = {}
+          for chat_id in chat_ids:
+              query = urllib.parse.urlencode({"chat_id": chat_id, "count": 100})
+              request = urllib.request.Request(base + "/messages?" + query, headers={"Authorization": token})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  messages = json.loads(response.read()).get("messages") or []
+              for message in messages:
+                  text = str((message.get("body") or {}).get("text") or "")
+                  for label, plate in PLATES.items():
+                      if norm(plate) in norm(text):
+                          if label not in found or int(message.get("timestamp") or 0) > int(found[label].get("timestamp") or 0):
+                              found[label] = message
+
+          sender_ids = {}
+          for label, message in found.items():
+              sender_ids[label] = str((message.get("sender") or {}).get("user_id") or "")
+
+          report = {}
+          baseline_sender = sender_ids.get("loaded_m996", "")
+          for label in PLATES:
+              message = found.get(label)
+              if not message:
+                  report[label] = {"found": False}
+                  continue
+              body = message.get("body") or {}
+              link = message.get("link") or body.get("link") or {}
+              traits = edit_traits(message)
+              report[label] = {
+                  "found": True,
+                  "same_sender_as_loaded_m996": bool(baseline_sender and sender_ids.get(label) == baseline_sender),
+                  "sender_marked_bot": (message.get("sender") or {}).get("is_bot") is True,
+                  "has_edit_metadata": bool(traits),
+                  "truthy_edit_metadata": any(value for _, value in traits),
+                  "has_link_or_reply": bool(link),
+                  "link_type": str(link.get("type") or "") if isinstance(link, dict) else "non_dict",
+                  "attachment_count": len(body.get("attachments") or []),
+                  "body_key_count": len(body),
+                  "message_key_count": len(message),
+              }
+
+          print("APPROVED_MESSAGE_TRAITS " + json.dumps(report, ensure_ascii=False))
+          PY
