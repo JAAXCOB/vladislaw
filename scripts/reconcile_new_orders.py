@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from webhook.av_rescue_client import sync_extracted_job
+from webhook.av_rescue_client import retry_pending_syncs, sync_extracted_job
 from webhook.config import settings
 from webhook.extractor import extract_job
 from webhook.models import Message
@@ -193,6 +193,11 @@ def main() -> int:
     if args.bootstrap and args.dry_run:
         parser.error("--bootstrap cannot be combined with --dry-run")
 
+    retry_summary = (
+        retry_pending_syncs()
+        if not args.dry_run
+        else {"attempted": 0, "delivered": 0, "dead_lettered": 0, "remaining": 0}
+    )
     chat_ids = sorted(settings.allowed_chat_ids)
     requested = {_normalize_requested_plate(value) for value in args.only_plate}
     requested_mids = {str(value).strip() for value in args.only_mid if str(value).strip()}
@@ -206,6 +211,9 @@ def main() -> int:
         "closed_orders": 0,
         "replayed": 0,
         "ignored": 0,
+        "queue_attempted": retry_summary["attempted"],
+        "queue_delivered": retry_summary["delivered"],
+        "queue_remaining": retry_summary["remaining"],
     }
 
     with httpx.Client(
@@ -243,4 +251,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
