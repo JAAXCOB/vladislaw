@@ -101,6 +101,7 @@ def reconcile_messages(
     state: dict[str, str],
     *,
     only_plates: set[str] | None = None,
+    only_mids: set[str] | None = None,
     bootstrap: bool = False,
     dry_run: bool = False,
 ) -> dict[str, int]:
@@ -112,13 +113,15 @@ def reconcile_messages(
         if not mid or not text:
             counts["ignored"] += 1
             continue
+        if only_mids and mid not in only_mids:
+            continue
         if is_bot_generated_message(text, bool(message.sender and message.sender.is_bot)):
             counts["ignored"] += 1
             continue
 
         counts["scanned"] += 1
         fingerprint = _fingerprint(text)
-        if state.get(mid) == fingerprint and not only_plates:
+        if state.get(mid) == fingerprint and not only_plates and not only_mids:
             counts["unchanged"] += 1
             continue
 
@@ -149,6 +152,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hours", type=int, default=6)
     parser.add_argument("--only-plate", action="append", default=[])
+    parser.add_argument("--only-mid", action="append", default=[])
     parser.add_argument(
         "--bootstrap",
         action="store_true",
@@ -164,11 +168,16 @@ def main() -> int:
         parser.error("--hours must be between 1 and 168")
     if args.bootstrap and args.only_plate:
         parser.error("--bootstrap cannot be combined with --only-plate")
+    if args.bootstrap and args.only_mid:
+        parser.error("--bootstrap cannot be combined with --only-mid")
+    if args.only_plate and args.only_mid:
+        parser.error("--only-plate and --only-mid are mutually exclusive")
     if args.bootstrap and args.dry_run:
         parser.error("--bootstrap cannot be combined with --dry-run")
 
     chat_ids = sorted(settings.allowed_chat_ids)
     requested = {_normalize_requested_plate(value) for value in args.only_plate}
+    requested_mids = {str(value).strip() for value in args.only_mid if str(value).strip()}
     state = _load_state()
     now_ms = int(time.time() * 1000)
     oldest_ms = now_ms - args.hours * 3600 * 1000
@@ -186,6 +195,7 @@ def main() -> int:
                 chat_id,
                 state,
                 only_plates=requested or None,
+                only_mids=requested_mids or None,
                 bootstrap=args.bootstrap,
                 dry_run=args.dry_run,
             )
@@ -196,7 +206,8 @@ def main() -> int:
         _save_state(state)
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
     completed = summary["new_orders"] if args.dry_run else summary["replayed"]
-    if requested and completed != len(requested):
+    requested_count = len(requested) or len(requested_mids)
+    if requested_count and completed != requested_count:
         return 2
     return 0
 
