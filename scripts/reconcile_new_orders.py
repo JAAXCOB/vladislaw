@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 import time
@@ -29,7 +30,15 @@ from webhook.models import Message
 from webhook.reporting_rules import is_bot_generated_message, normalize_plate
 from webhook.storage import atomic_write_json, locked_target
 
-STATE_PATH = Path(__file__).resolve().parent.parent / "data" / "new_order_reconcile_state.json"
+PACKAGE_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+SHARED_DATA_DIR = Path("/opt/vladislaw/data")
+DATA_DIR = Path(
+    os.environ.get(
+        "AVR_RECONCILE_DATA_DIR",
+        str(SHARED_DATA_DIR if SHARED_DATA_DIR.is_dir() else PACKAGE_DATA_DIR),
+    )
+)
+STATE_PATH = DATA_DIR / "new_order_reconcile_state.json"
 RUN_LOCK = STATE_PATH.with_name("new_order_reconcile.run")
 PAGE_SIZE = 100
 MAX_STATE_ITEMS = 5000
