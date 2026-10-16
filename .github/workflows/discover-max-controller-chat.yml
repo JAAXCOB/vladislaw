@@ -31,41 +31,10 @@ jobs:
       - name: Discover closed chat and store disabled allowlist
         shell: bash
         env:
-          MAX_TOKEN: ${{ secrets.AVR_AI_MAX_CONTROL_TOKEN }}
           SSHPASS: ${{ secrets.SERVER_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "$MAX_TOKEN"
           test -n "$SSHPASS"
-
-          response="$(curl --fail --silent --show-error \
-            -H "Authorization: $MAX_TOKEN" \
-            'https://platform-api2.max.ru/updates?limit=100&timeout=0')"
-          event="$(jq -c '
-            [.updates[]
-              | select(
-                  .update_type == "bot_started"
-                  or (
-                    .update_type == "message_created"
-                    and .message.body.text == "/start"
-                  )
-                )
-            ] | last
-          ' <<<"$response")"
-          test "$event" != "null"
-
-          chat_id="$(jq -r '
-            if .chat_id != null then .chat_id
-            else .message.recipient.chat_id
-            end
-          ' <<<"$event")"
-          user_id="$(jq -r '
-            if .user.user_id != null then .user.user_id
-            else .message.sender.user_id
-            end
-          ' <<<"$event")"
-          [[ "$chat_id" =~ ^-?[0-9]+$ ]]
-          [[ "$user_id" =~ ^[0-9]+$ ]]
 
           install -d -m 0700 "$HOME/.ssh"
           printf '%s\n' \
@@ -101,8 +70,50 @@ jobs:
           }
           trap cleanup EXIT
 
-          IFS= read -r chat_id
-          IFS= read -r user_id
+          readarray -t ids < <(python3 - "$env_file" <<'PY'
+          import json
+          import ssl
+          import sys
+          import urllib.request
+          from pathlib import Path
+
+          values = {}
+          for raw in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+              if "=" in raw and not raw.lstrip().startswith("#"):
+                  key, value = raw.split("=", 1)
+                  values[key.strip()] = value.strip()
+          token = values.get("AVR_AI_MAX_CONTROL_TOKEN", "")
+          if not token:
+              raise SystemExit("MAX control token is absent on the server")
+
+          request = urllib.request.Request(
+              "https://platform-api2.max.ru/updates?limit=100&timeout=0",
+              headers={"Authorization": token},
+          )
+          with urllib.request.urlopen(request, timeout=30, context=ssl.create_default_context()) as response:
+              payload = json.load(response)
+
+          candidates = []
+          for update in payload.get("updates", []):
+              if update.get("update_type") == "bot_started":
+                  candidates.append(update)
+              elif update.get("update_type") == "message_created":
+                  if update.get("message", {}).get("body", {}).get("text") == "/start":
+                      candidates.append(update)
+          if not candidates:
+              raise SystemExit("No bot_started or /start event found")
+
+          event = candidates[-1]
+          message = event.get("message", {})
+          chat_id = event.get("chat_id") or message.get("recipient", {}).get("chat_id")
+          user_id = event.get("user", {}).get("user_id") or message.get("sender", {}).get("user_id")
+          print(chat_id)
+          print(user_id)
+          PY
+          )
+          [[ "${#ids[@]}" -eq 2 ]]
+          chat_id="${ids[0]}"
+          user_id="${ids[1]}"
           [[ "$chat_id" =~ ^-?[0-9]+$ ]]
           [[ "$user_id" =~ ^[0-9]+$ ]]
 
@@ -153,8 +164,7 @@ jobs:
           remote_script="/root/configure-max-allowlist-${GITHUB_RUN_ID}.sh"
           sshpass -e scp "${ssh_options[@]}" configure-max-allowlist.sh \
             "root@130.49.173.150:$remote_script"
-          printf '%s\n%s\n' "$chat_id" "$user_id" \
-            | sshpass -e ssh "${ssh_options[@]}" root@130.49.173.150 \
-                "trap 'rm -f -- $remote_script' EXIT; bash $remote_script"
+          sshpass -e ssh "${ssh_options[@]}" root@130.49.173.150 \
+            "trap 'rm -f -- $remote_script' EXIT; bash $remote_script"
 
-          unset MAX_TOKEN SSHPASS chat_id user_id event response
+          unset SSHPASS
