@@ -1,4 +1,5 @@
 name: Recover only A742OO797 safely
+# Targeted replay compares the extracted canonical plate.
 
 on:
   push:
