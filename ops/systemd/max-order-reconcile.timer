@@ -1,0 +1,13 @@
+[Unit]
+Description=Check MAX history for webhook delivery gaps
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+RandomizedDelaySec=15s
+Persistent=true
+Unit=max-order-reconcile.service
+
+[Install]
+WantedBy=timers.target
+

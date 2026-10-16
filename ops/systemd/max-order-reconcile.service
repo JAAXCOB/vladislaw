@@ -1,0 +1,22 @@
+[Unit]
+Description=AV Rescue MAX missed-order reconciliation
+After=network-online.target max-webhook.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=maxbot
+Group=maxbot
+WorkingDirectory=/opt/vladislaw
+EnvironmentFile=/opt/vladislaw/.env
+ExecStart=/opt/vladislaw/.venv/bin/python /opt/vladislaw/scripts/reconcile_new_orders.py --hours 6
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/vladislaw/data
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+LockPersonality=true
+
