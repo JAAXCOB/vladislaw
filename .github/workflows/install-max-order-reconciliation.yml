@@ -196,8 +196,7 @@ jobs:
 
           systemctl enable --now max-order-reconcile.timer
           if ! systemctl start max-order-reconcile.service; then
-            journalctl -u max-order-reconcile.service -n 40 --no-pager -o cat \\
-              | sed -E 's#https?://[^ ]+#<url>#g'
+            journalctl -u max-order-reconcile.service -n 40 --no-pager -o cat | sed -E 's#https?://[^ ]+#<url>#g'
             exit 1
           fi
           systemctl is-active --quiet max-order-reconcile.timer
