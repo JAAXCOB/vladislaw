@@ -90,7 +90,19 @@ jobs:
           except Exception as exc:
               import_error = type(exc).__name__
 
-          report = {"deployed_algorithm_import_error": import_error}
+          active_text = run([
+              "systemctl", "show", "max-webhook.service", "-p", "ActiveEnterTimestamp", "--value"
+          ]).stdout.strip()
+          active_epoch = 0
+          if active_text:
+              try:
+                  active_epoch = int(run(["date", "-d", active_text, "+%s"]).stdout.strip() or "0")
+              except Exception:
+                  pass
+          report = {
+              "deployed_algorithm_import_error": import_error,
+              "service_active_since_known": bool(active_epoch),
+          }
           for label in PLATES:
               item = found.get(label)
               if not item:
@@ -139,6 +151,15 @@ jobs:
                   "has_destination_label": bool(re.search(r"(?im)^\s*Куда\s*:", text)),
                   "has_request_marker": ("заяв" in lowered or "эваку" in lowered),
                   "line_count": len([line for line in text.splitlines() if line.strip()]),
+                  "deterministic_algorithm_accepts": bool(
+                      re.search(r"(?im)^\s*Откуда\s*:\s*.+$", text)
+                      and re.search(r"(?im)^\s*Куда\s*:\s*.+$", text)
+                      and norm(PLATES[label]) in norm(text)
+                      and ("заяв" in lowered or "эваку" in lowered)
+                  ),
+                  "service_was_active_before_message": bool(
+                      active_epoch and active_epoch * 1000 < item["timestamp"]
+                  ),
                   "local_algorithm_source": local_source,
                   "local_is_new_job": local_is_new,
                   "local_needs_review": local_needs_review,
