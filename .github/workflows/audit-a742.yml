@@ -1,0 +1,147 @@
+name: Audit A742 MAX history read only
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/audit-a742.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect exact MAX history and delivery evidence
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=20 root@130.49.173.150 'python3 -B -' <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import time
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          TARGET = "А742ОО797"
+
+          def norm(value):
+              table = str.maketrans({"A":"А","B":"В","C":"С","E":"Е","H":"Н","K":"К","M":"М","O":"О","P":"Р","T":"Т","X":"Х","Y":"У"})
+              return re.sub(r"[^А-Я0-9]", "", str(value).upper().replace("Ё", "Е").translate(table))
+
+          pid = int(subprocess.run(
+              ["systemctl", "show", "max-webhook.service", "-p", "MainPID", "--value"],
+              capture_output=True, text=True, check=True,
+          ).stdout.strip() or "0")
+          env = {}
+          for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+              if b"=" in raw:
+                  key, value = raw.split(b"=", 1)
+                  env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+          cwd = Path(os.readlink(f"/proc/{pid}/cwd"))
+          sys.path.insert(0, str(cwd))
+          from webhook.extractor import extract_job
+          from webhook.models import Message
+
+          token = env.get("MAX_BOT_TOKEN", "")
+          base = env.get("MAX_API_BASE", "https://platform-api2.max.ru").rstrip("/")
+          chat_ids = [x.strip() for x in env.get("MAX_CHAT_ID", "").split(",") if x.strip()]
+          occurrences = []
+          target_ids = []
+          now_ms = int(time.time() * 1000)
+          oldest_ms = now_ms - 48 * 3600 * 1000
+          for chat_id in chat_ids:
+              window_end = now_ms
+              while True:
+                  query = urllib.parse.urlencode({"chat_id": chat_id, "from": window_end, "to": oldest_ms, "count": 100})
+                  request = urllib.request.Request(base + "/messages?" + query, headers={"Authorization": token})
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      batch = json.loads(response.read()).get("messages") or []
+                  if not batch:
+                      break
+                  for raw in batch:
+                      message = Message.model_validate(raw)
+                      text = message.resolve_text() or ""
+                      if norm(TARGET) not in norm(text):
+                          continue
+                      mid = str((message.body.mid if message.body else "") or "")
+                      sender = message.sender.first_name if message.sender else ""
+                      job = extract_job(text, sender)
+                      source_id = f"max:{chat_id}:{mid}"
+                      target_ids.append(source_id)
+                      occurrences.append({
+                          "mid": mid,
+                          "source_id": source_id,
+                          "timestamp": datetime.fromtimestamp(int(raw.get("timestamp") or 0) / 1000, tz=timezone.utc).isoformat(),
+                          "new": bool(job.is_new_job_request),
+                          "closed": bool(job.is_closed_job_report),
+                          "plate": job.license_plate,
+                          "vehicle_present": bool(" ".join(x for x in (job.vehicle_make, job.vehicle_model) if x).strip()),
+                          "pickup_present": bool(job.pickup_address),
+                          "destination_present": bool(job.destination),
+                      })
+                  if len(batch) < 100:
+                      break
+                  minimum = min(int(item.get("timestamp") or 0) for item in batch)
+                  if minimum <= oldest_ms or minimum >= window_end:
+                      break
+                  window_end = minimum - 1
+
+          queue_value = env.get("AV_RESCUE_SYNC_QUEUE_PATH", "data/av_rescue_sync_queue.json")
+          queue = Path(queue_value)
+          if not queue.is_absolute():
+              queue = cwd / queue
+          dead = queue.with_name(queue.stem + ".dead" + queue.suffix)
+          queue_records = []
+          for label, path in (("queue", queue), ("dead", dead)):
+              try:
+                  items = json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  items = []
+              for item in items if isinstance(items, list) else []:
+                  payload = item.get("payload", item) if isinstance(item, dict) else {}
+                  if payload.get("source_id") in target_ids:
+                      queue_records.append({
+                          "where": label,
+                          "source_id": payload.get("source_id"),
+                          "event": payload.get("event"),
+                          "attempts": item.get("attempts", 0),
+                          "next_attempt_at": item.get("next_attempt_at", 0),
+                      })
+
+          journal = subprocess.run(
+              ["journalctl", "-u", "max-webhook.service", "--since", "48 hours ago", "--no-pager", "-o", "cat"],
+              capture_output=True, text=True, timeout=60,
+          ).stdout
+          journal_hits = []
+          for line in journal.splitlines():
+              if any(source_id in line for source_id in target_ids) or norm(TARGET) in norm(line):
+                  sanitized = re.sub(r"https?://\S+", "<url>", line)
+                  journal_hits.append(sanitized[-300:])
+
+          print("APPROVED_A742_AUDIT " + json.dumps({
+              "occurrences": occurrences,
+              "queue_records": queue_records,
+              "journal_hits": journal_hits[-20:],
+              "max_webhook_active": subprocess.run(
+                  ["systemctl", "is-active", "--quiet", "max-webhook.service"]
+              ).returncode == 0,
+          }, ensure_ascii=False))
+          PY
+
