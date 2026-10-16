@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Read-only MAX identity diagnosis
+      - name: Read-only MAX message identity diagnosis
         shell: bash
         env:
           SSHPASS: ${{ secrets.SERVER_PASSWORD }}
@@ -47,29 +47,39 @@ jobs:
               if "=" in raw and not raw.lstrip().startswith("#"):
                   key, value = raw.split("=", 1)
                   env[key.strip()] = value.strip()
-
-          token = env.get("AVR_AI_MAX_CONTROL_TOKEN", "")
-          chat_id = env.get("AVR_AI_MAX_CONTROL_CHAT_ID", "")
+          token = env["AVR_AI_MAX_CONTROL_TOKEN"]
+          chat_id = env["AVR_AI_MAX_CONTROL_CHAT_ID"]
           configured = {
               value.strip()
               for value in env.get("AVR_AI_MAX_CONTROL_USER_IDS", "").split(",")
               if value.strip()
           }
-          if not token or not chat_id:
-              raise SystemExit("MAX token or chat id is not configured")
+          headers = {"Authorization": token}
 
-          url = "https://platform-api2.max.ru/chats/" + urllib.parse.quote(chat_id, safe="")
-          request = urllib.request.Request(url, headers={"Authorization": token})
-          with urllib.request.urlopen(request, timeout=20) as response:
-              chat = json.loads(response.read())
+          def get(url):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.loads(response.read())
 
-          peer = chat.get("dialog_with_user") or {}
-          peer_id = str(peer.get("user_id") or "").strip()
+          base = "https://platform-api2.max.ru"
+          chat = get(base + "/chats/" + urllib.parse.quote(chat_id, safe=""))
+          me = get(base + "/me")
+          query = urllib.parse.urlencode({"chat_id": chat_id, "count": 20})
+          messages = get(base + "/messages?" + query).get("messages") or []
+          bot_id = str(me.get("user_id") or "")
+          peers = []
+          for message in messages:
+              sender = message.get("sender") or {}
+              sender_id = str(sender.get("user_id") or "")
+              if sender_id and sender_id != bot_id:
+                  peers.append(sender_id)
           result = {
               "chat_type": chat.get("type"),
-              "dialog_peer_present": bool(peer_id),
-              "configured_user_count": len(configured),
-              "configured_user_matches_dialog_peer": bool(peer_id and peer_id in configured),
+              "dialog_peer_matches_config": str((chat.get("dialog_with_user") or {}).get("user_id") or "") in configured,
+              "message_count": len(messages),
+              "human_message_count": len(peers),
+              "all_human_senders_match_config": bool(peers) and all(value in configured for value in peers),
+              "latest_human_sender_matches_config": bool(peers) and peers[0] in configured,
           }
-          print("AVR_MAX_IDENTITY " + json.dumps(result, ensure_ascii=False))
+          print("AVR_MAX_MESSAGES " + json.dumps(result, ensure_ascii=False))
           PY
