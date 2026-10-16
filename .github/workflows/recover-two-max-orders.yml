@@ -1,4 +1,4 @@
-name: Recover only N384RT797 safely
+name: Recover only A742OO797 safely
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: codex/max-order-reconciliation-20261016
-      - name: Dry-run then recover only N384
+      - name: Dry-run then recover only A742
         shell: bash
         env:
           SSHPASS: ${{ secrets.SERVER_PASSWORD }}
@@ -47,7 +47,7 @@ jobs:
           import urllib.request
           from pathlib import Path
 
-          TARGET = "Н384РТ797"
+          TARGET = "А742ОО797"
 
           def digest(value):
               path = Path(value) if value else None
@@ -86,7 +86,7 @@ jobs:
               queue = cwd / queue
           dead = queue.with_name(queue.stem + ".dead" + queue.suffix)
           child_env["AV_RESCUE_SYNC_QUEUE_PATH"] = str(queue)
-          backup = Path("/opt/vladislaw/backups") / ("n384-replay-" + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
+          backup = Path("/opt/vladislaw/backups") / ("a742-replay-" + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
           backup.mkdir(parents=True, mode=0o700)
           for path in (queue, dead):
               if path.exists():
@@ -108,7 +108,7 @@ jobs:
           if dry.returncode == 0 and dry.stdout.strip():
               dry_summary = json.loads(dry.stdout.strip().splitlines()[-1])
           if dry.returncode != 0 or dry_summary.get("new_orders") != 1:
-              print("APPROVED_N384_RECOVERY " + json.dumps({
+              print("APPROVED_A742_RECOVERY " + json.dumps({
                   "ok": False, "stage": "dry_run", "classified": int(dry_summary.get("new_orders", 0))
               }))
               raise SystemExit(1)
@@ -174,7 +174,7 @@ jobs:
               ).returncode == 0,
               "backup_created": backup.exists(),
           }
-          print("APPROVED_N384_RECOVERY " + json.dumps(result, ensure_ascii=False))
+          print("APPROVED_A742_RECOVERY " + json.dumps(result, ensure_ascii=False))
           shutil.rmtree(os.environ["REMOTE_ROOT"], ignore_errors=True)
           if not all((
               result["ok"], result["excel_unchanged"], result["payroll_unchanged"],
