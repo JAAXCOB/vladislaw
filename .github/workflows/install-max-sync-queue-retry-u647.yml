@@ -1,4 +1,4 @@
-name: Install MAX sync queue retry and recover U647SE797
+name: Install MAX sync queue retry and recover U647SE797 # retry 4
 
 on:
   push:
