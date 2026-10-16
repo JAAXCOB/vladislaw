@@ -76,11 +76,11 @@ jobs:
                       item = json.loads(raw)
                   except json.JSONDecodeError:
                       continue
-                  if item.get("action") not in {"max_control_webhook", "max_control_command"}:
+                  if item.get("event") not in {"max_control_webhook", "max_control_command"}:
                       continue
                   safe = {
                       "timestamp": item.get("timestamp"),
-                      "action": item.get("action"),
+                      "event": item.get("event"),
                       "outcome": item.get("outcome"),
                       "details": item.get("details"),
                   }
