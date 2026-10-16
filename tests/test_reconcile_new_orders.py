@@ -63,6 +63,25 @@ def test_only_plate_does_not_replay_other_orders(monkeypatch) -> None:
     assert synchronized == ["wanted"]
 
 
+def test_only_mid_replays_exact_source_message(monkeypatch) -> None:
+    synchronized: list[str] = []
+    monkeypatch.setattr(
+        module,
+        "sync_extracted_job",
+        lambda job, chat_id, mid, text: synchronized.append(mid),
+    )
+
+    result = module.reconcile_messages(
+        [_message("wanted", ORDER), _message("other", ORDER)],
+        "-10",
+        {},
+        only_mids={"wanted"},
+    )
+
+    assert result["replayed"] == 1
+    assert synchronized == ["wanted"]
+
+
 def test_bootstrap_records_without_site_sync(monkeypatch) -> None:
     monkeypatch.setattr(
         module,
@@ -98,3 +117,4 @@ def test_dry_run_classifies_without_sync_or_state_change(monkeypatch) -> None:
     assert result["new_orders"] == 1
     assert result["replayed"] == 0
     assert state == {}
+
