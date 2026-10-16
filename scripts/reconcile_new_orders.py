@@ -1,10 +1,11 @@
-"""Recover MAX new-order events missed by webhook delivery.
+"""Recover MAX order events missed by webhook delivery.
 
 This job is deliberately isolated from Excel, payroll and close reports.  It
-reads a rolling MAX history window and replays only messages classified as new
-orders.  The existing partner endpoint receives the same stable source ID used
-by the webhook (``max:<chat_id>:<mid>``), so retries update the same order
-instead of creating a second one.
+reads a rolling MAX history window and replays messages classified as new or
+closed orders.  This also covers a close report whose final edited version was
+not delivered by MAX.  The existing partner endpoint receives the same stable
+source ID used by the webhook (``max:<chat_id>:<mid>``), so retries update the
+same order instead of creating a second one.
 """
 from __future__ import annotations
 
@@ -114,7 +115,14 @@ def reconcile_messages(
     bootstrap: bool = False,
     dry_run: bool = False,
 ) -> dict[str, int]:
-    counts = {"scanned": 0, "unchanged": 0, "new_orders": 0, "replayed": 0, "ignored": 0}
+    counts = {
+        "scanned": 0,
+        "unchanged": 0,
+        "new_orders": 0,
+        "closed_orders": 0,
+        "replayed": 0,
+        "ignored": 0,
+    }
     for raw in raw_messages:
         message = Message.model_validate(raw)
         mid = message.body.mid if message.body else None
@@ -144,8 +152,9 @@ def reconcile_messages(
             plate = normalize_plate(job.license_plate or "")
             if plate not in only_plates:
                 continue
-        if job.is_new_job_request:
-            counts["new_orders"] += 1
+        if job.is_new_job_request or job.is_closed_job_report:
+            event_key = "closed_orders" if job.is_closed_job_report else "new_orders"
+            counts[event_key] += 1
             if not dry_run:
                 sync_extracted_job(job, chat_id, mid, text)
                 counts["replayed"] += 1
@@ -190,7 +199,14 @@ def main() -> int:
     state = _load_state()
     now_ms = int(time.time() * 1000)
     oldest_ms = now_ms - args.hours * 3600 * 1000
-    summary = {"scanned": 0, "unchanged": 0, "new_orders": 0, "replayed": 0, "ignored": 0}
+    summary = {
+        "scanned": 0,
+        "unchanged": 0,
+        "new_orders": 0,
+        "closed_orders": 0,
+        "replayed": 0,
+        "ignored": 0,
+    }
 
     with httpx.Client(
         timeout=30,
@@ -214,7 +230,11 @@ def main() -> int:
     if not args.dry_run:
         _save_state(state)
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
-    completed = summary["new_orders"] if args.dry_run else summary["replayed"]
+    completed = (
+        summary["new_orders"] + summary["closed_orders"]
+        if args.dry_run
+        else summary["replayed"]
+    )
     requested_count = len(requested) or len(requested_mids)
     if requested_count and completed != requested_count:
         return 2
