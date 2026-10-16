@@ -86,7 +86,11 @@ jobs:
           install -o maxbot -g maxbot -m 0750 "$STAGE/reconcile_new_orders.py" "$script_target"
           install -o maxbot -g maxbot -m 0640 "$STAGE/av_rescue_client.py" "$client_target"
           "$py" -m py_compile "$script_target" "$client_target"
-          systemctl start max-order-reconcile.service
+          if ! systemctl start max-order-reconcile.service; then
+            systemctl status max-order-reconcile.service --no-pager || true
+            journalctl -u max-order-reconcile.service -n 80 --no-pager -o cat || true
+            exit 1
+          fi
           test "$(systemctl show max-order-reconcile.service -p Result --value)" = success
 
           set +e
