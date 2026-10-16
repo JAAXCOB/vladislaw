@@ -2,6 +2,10 @@ name: Diagnose AVR AI MAX delivery
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/diagnose-ai-controller-max-delivery.yml
 
 permissions:
   contents: read
@@ -11,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Read-only MAX delivery diagnosis
+      - name: Read-only MAX identity diagnosis
         shell: bash
         env:
           SSHPASS: ${{ secrets.SERVER_PASSWORD }}
@@ -33,67 +37,39 @@ jobs:
             -o PubkeyAuthentication=no \
             -o ConnectTimeout=20 \
             root@130.49.173.150 'python3 -B -' <<'PY'
-          import json, subprocess, urllib.request
+          import json
+          import urllib.parse
+          import urllib.request
           from pathlib import Path
-
-          def run(args):
-              p = subprocess.run(args, capture_output=True, text=True, timeout=20)
-              return p.returncode, p.stdout.strip()
 
           env = {}
           for raw in Path("/opt/vladislaw/.env.ai-controller").read_text(errors="replace").splitlines():
               if "=" in raw and not raw.lstrip().startswith("#"):
                   key, value = raw.split("=", 1)
                   env[key.strip()] = value.strip()
-          route_path = Path("/opt/vladislaw/ai-controller-data/max-controller-webhook.json")
-          route = json.loads(route_path.read_text()) if route_path.is_file() else {}
+
           token = env.get("AVR_AI_MAX_CONTROL_TOKEN", "")
-          request = urllib.request.Request(
-              "https://platform-api2.max.ru/subscriptions",
-              headers={"Authorization": token},
-          )
-          with urllib.request.urlopen(request, timeout=20) as response:
-              subscriptions = json.loads(response.read()).get("subscriptions") or []
-          expected_url = route.get("url", "")
-          matching = [item for item in subscriptions if item.get("url") == expected_url]
-          status = {
-              "controller_active": run(["systemctl", "is-active", "avr-ai-controller.service"])[1],
-              "existing_bot_active": run(["systemctl", "is-active", "max-webhook.service"])[1],
-              "enabled": env.get("AVR_AI_MAX_CONTROL_ENABLED"),
-              "transport": env.get("AVR_AI_MAX_CONTROL_TRANSPORT"),
-              "allowlist_configured": bool(env.get("AVR_AI_MAX_CONTROL_CHAT_ID")) and bool(env.get("AVR_AI_MAX_CONTROL_USER_IDS")),
-              "route_record": bool(expected_url),
-              "subscription_count": len(subscriptions),
-              "matching_subscription_count": len(matching),
-              "matching_update_types": matching[0].get("update_types") if len(matching) == 1 else None,
+          chat_id = env.get("AVR_AI_MAX_CONTROL_CHAT_ID", "")
+          configured = {
+              value.strip()
+              for value in env.get("AVR_AI_MAX_CONTROL_USER_IDS", "").split(",")
+              if value.strip()
           }
-          print("AVR_MAX_DIAG " + json.dumps(status, ensure_ascii=False))
-          audit = Path("/opt/vladislaw/ai-controller-data/audit.jsonl")
-          if audit.is_file():
-              rows = audit.read_text(errors="replace").splitlines()[-40:]
-              for raw in rows:
-                  try:
-                      item = json.loads(raw)
-                  except json.JSONDecodeError:
-                      continue
-                  if item.get("event") not in {"max_control_webhook", "max_control_command"}:
-                      continue
-                  safe = {
-                      "timestamp": item.get("timestamp"),
-                      "event": item.get("event"),
-                      "outcome": item.get("outcome"),
-                      "details": item.get("details"),
-                  }
-                  print("AVR_MAX_AUDIT " + json.dumps(safe, ensure_ascii=False))
-          code, journal = run([
-              "journalctl", "-u", "avr-ai-controller.service",
-              "--since", "15 minutes ago", "--no-pager", "-o", "cat",
-          ])
-          safe_journal = []
-          for line in journal.splitlines():
-              lowered = line.casefold()
-              if any(word in lowered for word in ("token", "secret", "password", "authorization")):
-                  continue
-              safe_journal.append(line[:500])
-          print("AVR_MAX_JOURNAL " + json.dumps({"exit": code, "lines": safe_journal[-40:]}, ensure_ascii=False))
+          if not token or not chat_id:
+              raise SystemExit("MAX token or chat id is not configured")
+
+          url = "https://platform-api2.max.ru/chats/" + urllib.parse.quote(chat_id, safe="")
+          request = urllib.request.Request(url, headers={"Authorization": token})
+          with urllib.request.urlopen(request, timeout=20) as response:
+              chat = json.loads(response.read())
+
+          peer = chat.get("dialog_with_user") or {}
+          peer_id = str(peer.get("user_id") or "").strip()
+          result = {
+              "chat_type": chat.get("type"),
+              "dialog_peer_present": bool(peer_id),
+              "configured_user_count": len(configured),
+              "configured_user_matches_dialog_peer": bool(peer_id and peer_id in configured),
+          }
+          print("AVR_MAX_IDENTITY " + json.dumps(result, ensure_ascii=False))
           PY
