@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import re
 import sqlite3
 import time
@@ -90,6 +91,10 @@ class MaxControlAdapter:
     def headers(self) -> dict[str, str]:
         return {"Authorization": self.settings.max_control_token.get_secret_value()}
 
+    def accepts_webhook_secret(self, supplied: str) -> bool:
+        expected = self.settings.max_control_webhook_secret.get_secret_value()
+        return bool(expected) and hmac.compare_digest(supplied, expected)
+
     @staticmethod
     def _chat_id(update: dict[str, Any]) -> str:
         message = update.get("message") or {}
@@ -171,7 +176,7 @@ class MaxControlAdapter:
             self.state.save_marker(next_marker)
 
     async def run(self) -> None:
-        if not self.settings.max_control_enabled:
+        if not self.settings.max_control_enabled or self.settings.max_control_transport != "polling":
             return
         delay = 1
         while not self._stopped.is_set():

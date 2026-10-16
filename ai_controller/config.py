@@ -42,7 +42,9 @@ class ControllerSettings(BaseSettings):
     per_request_budget_minor: int = 0
 
     max_control_enabled: bool = False
+    max_control_transport: str = "webhook"
     max_control_token: SecretStr = SecretStr("")
+    max_control_webhook_secret: SecretStr = SecretStr("")
     max_control_chat_id: str = ""
     max_control_user_ids: str = ""
     max_control_api_base: str = "https://platform-api2.max.ru"
@@ -114,6 +116,12 @@ class ControllerSettings(BaseSettings):
         if self.max_control_enabled:
             if not self.max_control_token.get_secret_value().strip():
                 raise ValueError("MAX control token is required")
+            if self.max_control_transport not in {"webhook", "polling"}:
+                raise ValueError("MAX control transport must be webhook or polling")
+            if self.max_control_transport == "webhook":
+                secret = self.max_control_webhook_secret.get_secret_value().strip()
+                if len(secret) < 32:
+                    raise ValueError("MAX control webhook secret must contain at least 32 characters")
             if not self.max_control_chat_id.lstrip("-").isdigit():
                 raise ValueError("MAX control chat id must be numeric")
             if not self.allowed_control_user_ids:

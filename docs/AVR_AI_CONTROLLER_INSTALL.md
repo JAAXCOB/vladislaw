@@ -165,18 +165,35 @@ verification must return `valid=true`. Confirm that `max-webhook.service` is sti
 active and compare hashes of both Excel files before and after starting the new
 service; they must be identical.
 
-## 6. Optional integrations remain disabled
+## 6. Enable optional integrations one at a time
 
 ### Closed MAX controller
 
-Keep `AVR_AI_MAX_CONTROL_ENABLED=false` on production. The current adapter uses Long
-Polling, while the official MAX API documentation states that Long Polling is for
-development/testing and production must use Webhook. Enabling a Webhook would require
-a separate design and explicit approval because Caddy and the existing MAX webhook are
-out of scope. Never reuse `MAX_BOT_TOKEN`.
+Use a separate controller bot and a separate closed chat. Never reuse `MAX_BOT_TOKEN`.
+Keep `AVR_AI_MAX_CONTROL_TRANSPORT=webhook`; polling is retained only for an isolated
+development check. Generate a dedicated random webhook secret of at least 32
+characters and configure the controller bot to deliver only `message_created` events
+to a dedicated HTTPS path which the reverse proxy forwards to
+`http://127.0.0.1:8010/max-control/webhook`.
 
-The nonce/chat/user checks remain covered by tests, but they do not make Long Polling
-production-supported.
+The public route must be unique to this controller. Do not replace or redirect the
+existing MAX webhook route. Before enabling it, verify all of the following in a test
+chat: a missing or wrong `X-Max-Bot-Api-Secret` gets HTTP 403; the correct secret gets
+HTTP 200; a different chat or user is ignored; a repeated nonce is ignored; and only
+`/status`, `/budget`, `/mail`, and `/help` are accepted. Then set:
+
+```text
+AVR_AI_MAX_CONTROL_ENABLED=true
+AVR_AI_MAX_CONTROL_TRANSPORT=webhook
+AVR_AI_MAX_CONTROL_TOKEN=<separate controller bot token>
+AVR_AI_MAX_CONTROL_WEBHOOK_SECRET=<dedicated random secret>
+AVR_AI_MAX_CONTROL_CHAT_ID=<closed numeric chat id>
+AVR_AI_MAX_CONTROL_USER_IDS=<comma-separated numeric user ids>
+```
+
+Changing the reverse proxy and registering the webhook are separate production
+changes and require their own reviewed patch, backup and approval. Do not enable the
+flag until the HTTPS route has been verified end to end.
 
 ### Yandex Mail
 

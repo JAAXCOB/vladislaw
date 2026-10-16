@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from ai_controller.audit import AuditLog
+from ai_controller.app import create_app
 from ai_controller.budget import BudgetDenied, BudgetLedger, BudgetLimits
 from ai_controller.config import ControllerSettings
 from ai_controller.mail import GmailReadOnlyAdapter, YandexReadOnlyAdapter
@@ -86,9 +87,20 @@ def test_settings_fail_closed_for_transport_paid_api_and_max_allowlist(tmp_path:
         settings(
             tmp_path,
             max_control_enabled=True,
+            max_control_transport="webhook",
             max_control_token="token",
+            max_control_webhook_secret="s" * 32,
             max_control_chat_id="-100",
             max_control_user_ids="name",
+        )
+    with pytest.raises(ValidationError, match="webhook secret"):
+        settings(
+            tmp_path,
+            max_control_enabled=True,
+            max_control_transport="webhook",
+            max_control_token="token",
+            max_control_chat_id="-100",
+            max_control_user_ids="42",
         )
 
 
@@ -245,12 +257,16 @@ def test_closed_max_control_requires_chat_user_freshness_and_nonce(tmp_path: Pat
     configured = settings(
         tmp_path,
         max_control_enabled=True,
+        max_control_transport="webhook",
         max_control_token="controller-token",
+        max_control_webhook_secret="w" * 32,
         max_control_chat_id="-100",
         max_control_user_ids="42",
     )
     audit = AuditLog(tmp_path / "max-audit.jsonl", "m" * 32)
     adapter = MaxControlAdapter(configured, FakeAsyncClient(handler), audit, command_handler)
+    assert adapter.accepts_webhook_secret("w" * 32) is True
+    assert adapter.accepts_webhook_secret("wrong") is False
     update = {
         "update_type": "message_created",
         "timestamp": int(time.time() * 1000),
@@ -276,6 +292,12 @@ def test_closed_max_control_requires_chat_user_freshness_and_nonce(tmp_path: Pat
     assert urlparse(sent[0].url).path.endswith("/messages")
 
 
+def test_closed_max_webhook_is_a_dedicated_post_route(tmp_path: Path) -> None:
+    application = create_app(settings(tmp_path))
+    route = next(item for item in application.routes if item.path == "/max-control/webhook")
+    assert route.methods == {"POST"}
+
+
 @pytest.mark.asyncio
 async def test_max_poll_requests_only_message_created_updates(tmp_path: Path) -> None:
     requests: list[RecordedRequest] = []
@@ -287,6 +309,7 @@ async def test_max_poll_requests_only_message_created_updates(tmp_path: Path) ->
     configured = settings(
         tmp_path,
         max_control_enabled=True,
+        max_control_transport="polling",
         max_control_token="controller-token",
         max_control_chat_id="-100",
         max_control_user_ids="42",
@@ -343,4 +366,5 @@ def test_example_configuration_disables_paid_and_write_capable_integrations() ->
     assert "AVR_AI_MONTHLY_BUDGET_MINOR=0" in example
     assert "AVR_AI_PER_REQUEST_BUDGET_MINOR=0" in example
     assert "AVR_AI_MAX_CONTROL_ENABLED=false" in example
+    assert "AVR_AI_MAX_CONTROL_TRANSPORT=webhook" in example
     assert "SMTP" not in example

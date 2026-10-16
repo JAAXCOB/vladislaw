@@ -97,12 +97,14 @@ class ControllerService:
             {
                 "paid_api_enabled": self.settings.paid_api_enabled,
                 "max_control_enabled": self.settings.max_control_enabled,
+                "max_control_transport": self.settings.max_control_transport,
                 "gmail_enabled": self.settings.gmail_enabled,
                 "yandex_enabled": self.settings.yandex_mail_enabled,
             },
         )
         self._cycle_task = asyncio.create_task(self._cycle_loop(), name="avr-ai-observer")
-        self._max_task = asyncio.create_task(self.max_control.run(), name="avr-ai-max-control")
+        if self.settings.max_control_transport == "polling":
+            self._max_task = asyncio.create_task(self.max_control.run(), name="avr-ai-max-control")
 
     async def stop(self) -> None:
         self._stopped.set()
