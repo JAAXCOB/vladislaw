@@ -1,0 +1,143 @@
+name: Repair MAX close X311TV797
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/repair-max-close-x311.yml
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Replay one verified close with backup
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          sshpass -e ssh -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no root@130.49.173.150 'bash -se' <<'SH'
+          set -euo pipefail
+          pid="$(systemctl show max-webhook.service -p MainPID --value)"
+          test -n "$pid"
+          test "$pid" != 0
+          app_root="$(readlink -f "/proc/$pid/cwd")"
+          cmd0="$(tr '\0' '\n' <"/proc/$pid/cmdline" | head -n1)"
+          py="$cmd0"
+          case "$(basename "$py")" in *python*) ;; *) py="$(dirname "$cmd0")/python" ;; esac
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          backup="/opt/vladislaw/backups/close-x311-$stamp"
+          install -d -m 0700 "$backup"
+          "$py" - "$pid" "$app_root" "$backup" <<'PY'
+          import hashlib, json, os, shutil, subprocess, sys, time
+          from pathlib import Path
+          import httpx
+
+          pid, app_root, backup_dir = sys.argv[1:]
+          os.chdir(app_root)
+          sys.path.insert(0, app_root)
+          for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+              if b"=" in raw:
+                  key, value = raw.split(b"=", 1)
+                  os.environ[key.decode(errors="ignore")] = value.decode(errors="ignore")
+
+          from webhook.config import settings
+          from webhook.main import process_message
+          from webhook.models import Message
+          from webhook.reporting_rules import normalize_plate, parse_explicit_closed_report, report_is_writable
+
+          target = "Х311ТВ797"
+          now_ms = int(time.time() * 1000)
+          oldest_ms = now_ms - 24 * 3600 * 1000
+          candidates = []
+          with httpx.Client(timeout=30, verify="/etc/ssl/certs/ca-certificates.crt") as client:
+              for chat_id in sorted(settings.allowed_chat_ids):
+                  response = client.get(
+                      f"{settings.MAX_API_BASE}/messages",
+                      headers={"Authorization": settings.max_bot_token},
+                      params={"chat_id": chat_id, "from": now_ms, "to": oldest_ms, "count": 100},
+                  )
+                  response.raise_for_status()
+                  for raw in response.json().get("messages") or []:
+                      msg = Message.model_validate(raw)
+                      text = msg.resolve_text() or ""
+                      job = parse_explicit_closed_report(text)
+                      if normalize_plate(text) == target and job and report_is_writable(job):
+                          candidates.append((int(raw.get("timestamp") or 0), chat_id, msg, text))
+
+          if len(candidates) != 1:
+              raise SystemExit(f"expected one verified close, found {len(candidates)}")
+          timestamp_ms, chat_id, msg, text = candidates[0]
+          mid = msg.body.mid if msg.body else None
+          if not mid:
+              raise SystemExit("verified close has no source message id")
+
+          journal = subprocess.run(
+              ["journalctl", "-u", "max-webhook.service", "--since", "24 hours ago", "--no-pager", "-o", "cat"],
+              capture_output=True, text=True, timeout=30, check=True,
+          ).stdout
+          webhook_mid_seen = mid in journal
+
+          backup = Path(backup_dir)
+          protected = []
+          for label, value in (("excel", settings.excel_file_path), ("payroll", settings.payroll_file_path)):
+              path = Path(value) if value else None
+              if path and path.is_file():
+                  destination = backup / f"{label}{path.suffix}"
+                  shutil.copy2(path, destination)
+                  protected.append((label, path, destination))
+
+          try:
+              process_message(
+                  text,
+                  msg.sender.display_name if msg.sender else "unknown",
+                  msg.effective_sender_name(),
+                  timestamp_ms,
+                  int(chat_id),
+                  mid,
+                  False,
+              )
+          except Exception:
+              for _label, path, saved in protected:
+                  shutil.copy2(saved, path)
+              raise
+
+          queue_path = Path(settings.av_rescue_sync_queue_path)
+          if not queue_path.is_absolute():
+              queue_path = Path(app_root) / queue_path
+          source_id = f"max:{chat_id}:{mid}"
+          queued = 0
+          dead = 0
+          for path, bucket in ((queue_path, "queued"), (queue_path.with_name(queue_path.stem + ".dead" + queue_path.suffix), "dead")):
+              if not path.exists():
+                  continue
+              data = json.loads(path.read_text(encoding="utf-8"))
+              for item in data if isinstance(data, list) else []:
+                  payload = item.get("payload", item) if isinstance(item, dict) else {}
+                  if payload.get("source_id") == source_id and payload.get("event") == "close":
+                      if bucket == "queued": queued += 1
+                      else: dead += 1
+
+          if queued or dead:
+              raise SystemExit("verified close was not delivered immediately")
+          print("REPAIR_MAX_CLOSE " + json.dumps({
+              "target": target,
+              "verified_source": True,
+              "webhook_originally_saw_mid": webhook_mid_seen,
+              "replayed": True,
+              "delivery_queue_clear": True,
+              "backup_created": True,
+          }, ensure_ascii=False))
+          PY
+          SH
+
