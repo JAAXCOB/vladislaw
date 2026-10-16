@@ -201,12 +201,7 @@ jobs:
                   "service_active": service["active"],
                   "restart_count": service["restart_count"],
                   "active_since_present": bool(service["active_since"]),
-                  "started_before_target": bool(
-                      target_ts and service["active_since"]
-                      and datetime.datetime.strptime(
-                          service["active_since"].split(" UTC")[0], "%a %Y-%m-%d %H:%M:%S"
-                      ).replace(tzinfo=datetime.timezone.utc).timestamp() * 1000 < target_ts
-                  ),
+                  "started_before_target": None,
                   "process_present": operational_pid > 0,
               },
               "controller_is_separate": {
