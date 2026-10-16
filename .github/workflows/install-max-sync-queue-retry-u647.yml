@@ -1,4 +1,4 @@
-name: Install MAX sync queue retry and recover U647SE797 # retry 7
+name: Install MAX sync queue retry and recover U647SE797 # retry 8
 
 on:
   push:
@@ -162,7 +162,15 @@ jobs:
           replay_status=$?
           set -e
           printf '%s\n' "$replay_output"
-          test "$replay_status" = 0
+          "$py" - "$replay_output" <<'PY'
+          import json, sys
+          lines = [line for line in sys.argv[1].splitlines() if line.startswith("{")]
+          if not lines:
+              raise SystemExit("missing reconciliation summary")
+          summary = json.loads(lines[-1])
+          if summary.get("replayed", 0) < 1 or summary.get("queue_remaining", 1) != 0:
+              raise SystemExit("target replay was not delivered")
+          PY
 
           pid="$(systemctl show max-webhook.service -p MainPID --value)"
           test -n "$pid"
@@ -190,9 +198,8 @@ jobs:
               raise SystemExit("Excel changed")
           if before["payroll"] != digest(env.get("PAYROLL_FILE_PATH")):
               raise SystemExit("Payroll changed")
-          queue = Path(env.get("AV_RESCUE_SYNC_QUEUE_PATH") or "data/av_rescue_sync_queue.json")
-          if not queue.is_absolute():
-              queue = Path(app_root) / queue
+          configured_queue = Path(env.get("AV_RESCUE_SYNC_QUEUE_PATH") or "data/av_rescue_sync_queue.json")
+          queue = configured_queue if configured_queue.is_absolute() else Path("/opt/vladislaw/data") / configured_queue.name
           pending = []
           if queue.exists():
               for item in json.loads(queue.read_text(encoding="utf-8")):
