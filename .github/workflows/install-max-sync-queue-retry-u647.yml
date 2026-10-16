@@ -51,6 +51,47 @@ jobs:
           cp -a "$script_target" "$backup/reconcile_new_orders.py"
           cp -a "$client_target" "$backup/av_rescue_client.py"
 
+          "$py" - "$pid" "$app_root" "$backup" <<'PY'
+          import json, os, shutil, sys
+          from pathlib import Path
+          pid, app_root, backup = sys.argv[1:]
+          env = {}
+          for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+              if b"=" in raw:
+                  key, value = raw.split(b"=", 1)
+                  env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+          configured = Path(env.get("AV_RESCUE_SYNC_QUEUE_PATH") or "data/av_rescue_sync_queue.json")
+          old_queue = configured if configured.is_absolute() else Path(app_root) / configured
+          shared_queue = Path("/opt/vladislaw/data") / configured.name
+          backup_dir = Path(backup)
+          backup_dir.joinpath("queue-paths.json").write_text(json.dumps({
+              "old": str(old_queue),
+              "shared": str(shared_queue),
+              "shared_existed": shared_queue.exists(),
+          }), encoding="utf-8")
+          if shared_queue.exists():
+              shutil.copy2(shared_queue, backup_dir / "queue.shared.before.json")
+          def read(path):
+              if not path.exists():
+                  return []
+              value = json.loads(path.read_text(encoding="utf-8"))
+              if not isinstance(value, list):
+                  raise SystemExit(f"invalid queue: {path}")
+              return value
+          merged = {}
+          for item in read(shared_queue) + read(old_queue):
+              payload = item.get("payload", item) if isinstance(item, dict) else {}
+              key = (payload.get("source_id"), payload.get("event"))
+              if all(key):
+                  merged[key] = item
+          shared_queue.parent.mkdir(parents=True, exist_ok=True)
+          temp = shared_queue.with_suffix(shared_queue.suffix + ".tmp")
+          temp.write_text(json.dumps(list(merged.values()), ensure_ascii=False, indent=2), encoding="utf-8")
+          os.replace(temp, shared_queue)
+          PY
+          chown maxbot:maxbot /opt/vladislaw/data/av_rescue_sync_queue.json
+          chmod 0640 /opt/vladislaw/data/av_rescue_sync_queue.json
+
           "$py" - "$pid" "$backup/protected.before.json" <<'PY'
           import hashlib, json, os, sys
           from pathlib import Path
@@ -80,12 +121,29 @@ jobs:
             if [ "$committed" = 1 ]; then return; fi
             cp -a "$backup/reconcile_new_orders.py" "$script_target"
             cp -a "$backup/av_rescue_client.py" "$client_target"
+            "$py" - "$backup" <<'PY'
+          import json, shutil, sys
+          from pathlib import Path
+          backup = Path(sys.argv[1])
+          meta_path = backup / "queue-paths.json"
+          if meta_path.exists():
+              meta = json.loads(meta_path.read_text(encoding="utf-8"))
+              shared = Path(meta["shared"])
+              saved = backup / "queue.shared.before.json"
+              if meta["shared_existed"] and saved.exists():
+                  shutil.copy2(saved, shared)
+              elif not meta["shared_existed"] and shared.exists():
+                  shared.unlink()
+          PY
+            systemctl restart max-webhook.service || true
           }
           trap rollback ERR
 
           install -o maxbot -g maxbot -m 0750 "$STAGE/reconcile_new_orders.py" "$script_target"
           install -o maxbot -g maxbot -m 0640 "$STAGE/av_rescue_client.py" "$client_target"
           "$py" -m py_compile "$script_target" "$client_target"
+          systemctl restart max-webhook.service
+          systemctl is-active --quiet max-webhook.service
           if ! systemctl start max-order-reconcile.service; then
             systemctl status max-order-reconcile.service --no-pager || true
             journalctl -u max-order-reconcile.service -n 80 --no-pager -o cat || true
