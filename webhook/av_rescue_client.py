@@ -94,7 +94,12 @@ def _split_destination_field(original_text: str, fallback: str | None) -> tuple[
 def _queue_path() -> Path:
     path = Path(settings.av_rescue_sync_queue_path)
     if not path.is_absolute():
-        path = Path(__file__).resolve().parent.parent / path
+        shared_data = Path("/opt/vladislaw/data")
+        path = (
+            shared_data / path.name
+            if shared_data.is_dir()
+            else Path(__file__).resolve().parent.parent / path
+        )
     return path
 
 
