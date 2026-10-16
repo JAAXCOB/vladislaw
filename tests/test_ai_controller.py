@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -299,6 +300,80 @@ def test_closed_max_webhook_is_a_dedicated_post_route(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_closed_max_webhook_rejects_missing_and_wrong_secret(tmp_path: Path) -> None:
+    configured = settings(
+        tmp_path,
+        max_control_enabled=True,
+        max_control_transport="webhook",
+        max_control_token="controller-token",
+        max_control_webhook_secret="w" * 32,
+        max_control_chat_id="-100",
+        max_control_user_ids="42",
+    )
+    transport = httpx.ASGITransport(app=create_app(configured))
+    async with httpx.AsyncClient(transport=transport, base_url="http://controller.test") as client:
+        missing = await client.post("/max-control/webhook", json={})
+        wrong = await client.post(
+            "/max-control/webhook",
+            headers={"X-Max-Bot-Api-Secret": "wrong"},
+            json={},
+        )
+
+    assert missing.status_code == 403
+    assert wrong.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_closed_max_webhook_accepts_valid_secret_but_ignores_untrusted_input(
+    tmp_path: Path,
+) -> None:
+    configured = settings(
+        tmp_path,
+        max_control_enabled=True,
+        max_control_transport="webhook",
+        max_control_token="controller-token",
+        max_control_webhook_secret="w" * 32,
+        max_control_chat_id="-100",
+        max_control_user_ids="42",
+    )
+    application = create_app(configured)
+    transport = httpx.ASGITransport(app=application)
+    headers = {"X-Max-Bot-Api-Secret": "w" * 32}
+    timestamp = int(time.time() * 1000)
+    wrong_user = {
+        "update_type": "message_created",
+        "timestamp": timestamp,
+        "message": {
+            "sender": {"user_id": 43},
+            "recipient": {"chat_id": -100},
+            "body": {"text": "/status nonce_123"},
+        },
+    }
+    unsupported_command = {
+        "update_type": "message_created",
+        "timestamp": timestamp,
+        "message": {
+            "sender": {"user_id": 42},
+            "recipient": {"chat_id": -100},
+            "body": {"text": "/restart nonce_456"},
+        },
+    }
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://controller.test") as client:
+        wrong_user_response = await client.post(
+            "/max-control/webhook", headers=headers, json=wrong_user
+        )
+        unsupported_response = await client.post(
+            "/max-control/webhook", headers=headers, json=unsupported_command
+        )
+
+    assert wrong_user_response.status_code == 200
+    assert wrong_user_response.json() == {"ok": True, "processed": False}
+    assert unsupported_response.status_code == 200
+    assert unsupported_response.json() == {"ok": True, "processed": False}
+
+
+@pytest.mark.asyncio
 async def test_max_poll_requests_only_message_created_updates(tmp_path: Path) -> None:
     requests: list[RecordedRequest] = []
 
@@ -370,3 +445,4 @@ def test_example_configuration_disables_paid_and_write_capable_integrations() ->
     assert "AVR_AI_MAX_CONTROL_TRANSPORT=webhook" in example
     assert "AVR_AI_DATA_DIR=/opt/vladislaw/ai-controller-data" in example
     assert "SMTP" not in example
+
