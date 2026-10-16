@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Return only approved found flags and error class
+      - name: Return only approved MAX presence and error class
         shell: bash
         env:
           SSHPASS: ${{ secrets.SERVER_PASSWORD }}
@@ -36,11 +36,13 @@ jobs:
             -o PubkeyAuthentication=no \
             -o ConnectTimeout=20 \
             root@130.49.173.150 'python3 -B -' <<'PY'
+          import datetime
           import json
           import os
           import re
           import subprocess
-          import zipfile
+          import urllib.parse
+          import urllib.request
           from pathlib import Path
 
           approved_plate = "А742ОО797"
@@ -53,19 +55,12 @@ jobs:
               text = normalized(value)
               return normalized(approved_plate) in text or latin_plate in text
 
-          def file_contains(path):
-              try:
-                  return contains_plate(path.read_text(encoding="utf-8", errors="replace"))
-              except OSError:
-                  return False
-
           def run(args):
               return subprocess.run(args, capture_output=True, text=True, timeout=30)
 
           pid = int(run([
               "systemctl", "show", "max-webhook.service", "-p", "MainPID", "--value"
           ]).stdout.strip() or "0")
-          cwd = Path(os.readlink(f"/proc/{pid}/cwd")) if pid else Path("/opt/vladislaw")
           env = {}
           if pid:
               for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
@@ -73,49 +68,66 @@ jobs:
                       key, value = raw.split(b"=", 1)
                       env[key.decode(errors="ignore")] = value.decode(errors="ignore")
 
-          queue = Path(env.get("AV_RESCUE_SYNC_QUEUE_PATH", "data/av_rescue_sync_queue.json"))
-          if not queue.is_absolute():
-              queue = cwd / queue
-          dead = queue.with_name(queue.stem + ".dead" + queue.suffix)
-          inbox = Path(env.get("EVENT_INBOX_PATH", "data/event_inbox"))
-          if not inbox.is_absolute():
-              inbox = cwd / inbox
-
-          found_in_inbox = inbox.is_dir() and any(
-              file_contains(path) for path in inbox.rglob("*") if path.is_file()
-          )
-          found_in_excel = False
-          for path in Path("/opt/vladislaw").rglob("*.xlsx"):
+          token = env.get("MAX_BOT_TOKEN", "")
+          api_base = env.get("MAX_API_BASE", "https://platform-api2.max.ru").rstrip("/")
+          chat_ids = [
+              item.strip()
+              for item in env.get("MAX_CHAT_ID", "").split(",")
+              if item.strip()
+          ]
+          found = False
+          found_timestamp_ms = 0
+          api_error = False
+          for chat_id in chat_ids:
               try:
-                  with zipfile.ZipFile(path) as archive:
-                      if any(
-                          contains_plate(archive.read(name).decode("utf-8", errors="replace"))
-                          for name in archive.namelist()
-                          if name.endswith(".xml")
-                      ):
-                          found_in_excel = True
+                  query = urllib.parse.urlencode({"chat_id": chat_id, "count": 100})
+                  request = urllib.request.Request(
+                      api_base + "/messages?" + query,
+                      headers={"Authorization": token},
+                  )
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      messages = json.loads(response.read()).get("messages") or []
+                  for message in messages:
+                      text = str((message.get("body") or {}).get("text") or "")
+                      if contains_plate(text):
+                          found = True
+                          found_timestamp_ms = int(message.get("timestamp") or 0)
                           break
-              except (OSError, zipfile.BadZipFile):
-                  pass
+              except Exception:
+                  api_error = True
+              if found:
+                  break
 
-          journal = run([
-              "journalctl", "-u", "max-webhook.service", "--since", "24 hours ago",
-              "--no-pager", "-o", "cat",
-          ]).stdout
-          if "AV Rescue sync request failed" in journal:
-              error_type = "connection_or_request_error"
-          elif "AV Rescue sync failed: HTTP" in journal:
-              error_type = "site_http_error"
-          elif "Rejected unsupported/invalid update" in journal:
-              error_type = "invalid_max_update"
-          else:
-              error_type = "none_observed"
+          error_type = "none_observed"
+          if api_error and not found:
+              error_type = "max_read_error"
+          elif not found:
+              error_type = "not_in_allowed_max_chat"
+          elif found_timestamp_ms:
+              stamp = datetime.datetime.fromtimestamp(
+                  found_timestamp_ms / 1000, tz=datetime.timezone.utc
+              )
+              since = (stamp - datetime.timedelta(minutes=2)).isoformat()
+              until = (stamp + datetime.timedelta(minutes=2)).isoformat()
+              journal = run([
+                  "journalctl", "-u", "max-webhook.service",
+                  "--since", since, "--until", until, "--no-pager", "-o", "cat",
+              ]).stdout
+              if "AV Rescue sync request failed" in journal:
+                  error_type = "site_connection_error_at_message_time"
+              elif "AV Rescue sync failed: HTTP" in journal:
+                  error_type = "site_http_error_at_message_time"
+              elif "Rejected unsupported/invalid update" in journal:
+                  error_type = "invalid_webhook_update_at_message_time"
+              elif "UPDATE type=message_created" not in journal:
+                  error_type = "webhook_not_received_at_message_time"
+              elif "AV Rescue sync delivered" not in journal:
+                  error_type = "message_received_but_not_classified_for_site"
+              else:
+                  error_type = "sync_reported_delivered"
 
-          print("APPROVED_ORDER_TRACE " + json.dumps({
-              "found_in_event_inbox": bool(found_in_inbox),
-              "found_in_excel": bool(found_in_excel),
-              "found_in_pending_site_sync": bool(file_contains(queue)),
-              "found_in_dead_site_sync": bool(file_contains(dead)),
+          print("APPROVED_MAX_TRACE " + json.dumps({
+              "found_in_allowed_max_chat": bool(found),
               "error_type": error_type,
           }, ensure_ascii=False))
           PY
