@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -43,6 +44,7 @@ STATE_PATH = DATA_DIR / "new_order_reconcile_state.json"
 RUN_LOCK = STATE_PATH.with_name("new_order_reconcile.run")
 PAGE_SIZE = 100
 MAX_STATE_ITEMS = 5000
+log = logging.getLogger("max_order_reconcile")
 
 
 def _fingerprint(text: str) -> str:
@@ -122,6 +124,7 @@ def reconcile_messages(
         "closed_orders": 0,
         "replayed": 0,
         "ignored": 0,
+        "invalid": 0,
     }
     for raw in raw_messages:
         message = Message.model_validate(raw)
@@ -147,7 +150,13 @@ def reconcile_messages(
             continue
 
         sender_name = message.sender.first_name if message.sender else ""
-        job = extract_job(text, sender_name)
+        try:
+            job = extract_job(text, sender_name)
+        except Exception:
+            counts["invalid"] += 1
+            log.exception("Skipping an invalid MAX message during reconciliation | mid=%s", mid)
+            state[mid] = fingerprint
+            continue
         if only_plates:
             plate = normalize_plate(job.license_plate or "")
             if plate not in only_plates:
@@ -211,6 +220,7 @@ def main() -> int:
         "closed_orders": 0,
         "replayed": 0,
         "ignored": 0,
+        "invalid": 0,
         "queue_attempted": retry_summary["attempted"],
         "queue_delivered": retry_summary["delivered"],
         "queue_remaining": retry_summary["remaining"],
