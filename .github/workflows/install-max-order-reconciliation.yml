@@ -151,7 +151,8 @@ jobs:
 
           install -o maxbot -g maxbot -m 0750 "$STAGE/scripts/reconcile_new_orders.py" "$app_root/scripts/reconcile_new_orders.py"
 
-          python3 - "$STAGE/ops/systemd/max-order-reconcile.service" "$backup/max-order-reconcile.service.new" "$app_root" "$py" "$env_file" <<'PY'
+          install -d -m 0700 "$backup/verify"
+          python3 - "$STAGE/ops/systemd/max-order-reconcile.service" "$backup/verify/max-order-reconcile.service" "$app_root" "$py" "$env_file" <<'PY'
           import sys
           from pathlib import Path
           source, destination, root, python, env_file = sys.argv[1:]
@@ -161,12 +162,12 @@ jobs:
           text = text.replace(f"EnvironmentFile={root}/.env", f"EnvironmentFile={env_file}")
           Path(destination).write_text(text, encoding="utf-8")
           PY
-          cp "$STAGE/ops/systemd/max-order-reconcile.timer" "$backup/max-order-reconcile.timer.new"
+          cp "$STAGE/ops/systemd/max-order-reconcile.timer" "$backup/verify/max-order-reconcile.timer"
 
           "$py" -m py_compile "$app_root/webhook/extractor.py" "$app_root/scripts/reconcile_new_orders.py"
-          systemd-analyze verify "$backup/max-order-reconcile.service.new" "$backup/max-order-reconcile.timer.new"
-          install -o root -g root -m 0644 "$backup/max-order-reconcile.service.new" /etc/systemd/system/max-order-reconcile.service
-          install -o root -g root -m 0644 "$backup/max-order-reconcile.timer.new" /etc/systemd/system/max-order-reconcile.timer
+          systemd-analyze verify "$backup/verify/max-order-reconcile.service" "$backup/verify/max-order-reconcile.timer"
+          install -o root -g root -m 0644 "$backup/verify/max-order-reconcile.service" /etc/systemd/system/max-order-reconcile.service
+          install -o root -g root -m 0644 "$backup/verify/max-order-reconcile.timer" /etc/systemd/system/max-order-reconcile.timer
           systemctl daemon-reload
           systemctl restart max-webhook.service
           systemctl is-active --quiet max-webhook.service
