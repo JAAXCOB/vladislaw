@@ -1,0 +1,233 @@
+name: Install idempotent MAX order reconciliation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/install-max-order-reconciliation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/max-order-reconciliation-20261016
+      - name: Install with backup, verification and rollback
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          stage=/tmp/avr-reconcile-install-${GITHUB_RUN_ID}
+          tar -czf /tmp/avr-reconcile-install.tgz scripts/reconcile_new_orders.py ops/systemd/max-order-reconcile.service ops/systemd/max-order-reconcile.timer
+          sshpass -e ssh -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 "install -d -m 0700 '$stage'"
+          sshpass -e scp -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" /tmp/avr-reconcile-install.tgz root@130.49.173.150:"$stage/package.tgz"
+          sshpass -e ssh -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 "tar -xzf '$stage/package.tgz' -C '$stage'"
+          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=20 root@130.49.173.150 "STAGE='$stage' bash -se" <<'SH'
+          set -euo pipefail
+
+          pid="$(systemctl show max-webhook.service -p MainPID --value)"
+          test -n "$pid"
+          test "$pid" != 0
+          app_root="$(readlink -f "/proc/$pid/cwd")"
+          cmd0="$(tr '\0' '\n' <"/proc/$pid/cmdline" | head -n1)"
+          py="$cmd0"
+          case "$(basename "$py")" in
+            *python*) ;;
+            *) py="$(dirname "$cmd0")/python" ;;
+          esac
+          test -x "$py"
+          test -f "$app_root/webhook/extractor.py"
+          test -d "$app_root/data"
+          test "$(systemctl is-active max-webhook.service)" = active
+          test "$(systemctl is-active avr-ai-controller.service)" = active
+
+          env_file="$(systemctl show max-webhook.service -p EnvironmentFiles --value | awk '{print $1}')"
+          test -n "$env_file"
+          test -f "$env_file"
+
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          backup="/opt/vladislaw/backups/max-reconcile-$stamp"
+          install -d -m 0700 "$backup"
+          cp -a "$app_root/webhook/extractor.py" "$backup/extractor.py"
+          for item in             "$app_root/scripts/reconcile_new_orders.py"             "$app_root/data/new_order_reconcile_state.json"             /etc/systemd/system/max-order-reconcile.service             /etc/systemd/system/max-order-reconcile.timer
+          do
+            if [ -e "$item" ]; then
+              cp -a "$item" "$backup/$(basename "$item")"
+            else
+              touch "$backup/$(basename "$item").was_absent"
+            fi
+          done
+
+          python3 - "$pid" "$backup/protected.before.json" <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          pid, output = sys.argv[1:]
+          env = {}
+          for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+              if b"=" in raw:
+                  key, value = raw.split(b"=", 1)
+                  env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+          def digest(value):
+              path = Path(value) if value else None
+              if not path or not path.is_file():
+                  return None
+              h = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for block in iter(lambda: handle.read(1024 * 1024), b""):
+                      h.update(block)
+              return h.hexdigest()
+          Path(output).write_text(json.dumps({
+              "excel": digest(env.get("EXCEL_FILE_PATH")),
+              "payroll": digest(env.get("PAYROLL_FILE_PATH")),
+          }), encoding="utf-8")
+          PY
+
+          committed=0
+          rollback() {
+            if [ "$committed" = 1 ]; then
+              return
+            fi
+            systemctl disable --now max-order-reconcile.timer >/dev/null 2>&1 || true
+            cp -a "$backup/extractor.py" "$app_root/webhook/extractor.py"
+            for item in reconcile_new_orders.py new_order_reconcile_state.json max-order-reconcile.service max-order-reconcile.timer
+            do
+              case "$item" in
+                reconcile_new_orders.py) target="$app_root/scripts/$item" ;;
+                new_order_reconcile_state.json) target="$app_root/data/$item" ;;
+                *) target="/etc/systemd/system/$item" ;;
+              esac
+              if [ -f "$backup/$item.was_absent" ]; then
+                rm -f "$target"
+              elif [ -e "$backup/$item" ]; then
+                cp -a "$backup/$item" "$target"
+              fi
+            done
+            systemctl daemon-reload || true
+            systemctl restart max-webhook.service || true
+          }
+          trap rollback ERR
+
+          python3 - "$app_root/webhook/extractor.py" <<'PY'
+          import sys
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8")
+          old = '''    lines = [line.strip() for line in message_text.splitlines() if line.strip()]
+              plate_index = next(
+                  (index for index, line in enumerate(lines) if plate and plate in re.sub(r"\\s+", "", line).upper()),
+                  None,
+              )
+          '''
+          new = '''    from webhook.reporting_rules import normalize_plate
+
+              lines = [line.strip() for line in message_text.splitlines() if line.strip()]
+              plate_index = next(
+                  (
+                      index
+                      for index, line in enumerate(lines)
+                      if plate and normalize_plate(line) == plate
+                  ),
+                  None,
+              )
+          '''
+          if old in text:
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          elif "if plate and normalize_plate(line) == plate" not in text:
+              raise SystemExit("unexpected extractor version")
+          PY
+
+          install -o maxbot -g maxbot -m 0750 "$STAGE/scripts/reconcile_new_orders.py" "$app_root/scripts/reconcile_new_orders.py"
+
+          python3 - "$STAGE/ops/systemd/max-order-reconcile.service" "$backup/max-order-reconcile.service.new" "$app_root" "$py" "$env_file" <<'PY'
+          import sys
+          from pathlib import Path
+          source, destination, root, python, env_file = sys.argv[1:]
+          text = Path(source).read_text(encoding="utf-8")
+          text = text.replace("/opt/vladislaw/.venv/bin/python", python)
+          text = text.replace("/opt/vladislaw", root)
+          text = text.replace(f"EnvironmentFile={root}/.env", f"EnvironmentFile={env_file}")
+          Path(destination).write_text(text, encoding="utf-8")
+          PY
+          cp "$STAGE/ops/systemd/max-order-reconcile.timer" "$backup/max-order-reconcile.timer.new"
+
+          "$py" -m py_compile "$app_root/webhook/extractor.py" "$app_root/scripts/reconcile_new_orders.py"
+          systemd-analyze verify "$backup/max-order-reconcile.service.new" "$backup/max-order-reconcile.timer.new"
+          install -o root -g root -m 0644 "$backup/max-order-reconcile.service.new" /etc/systemd/system/max-order-reconcile.service
+          install -o root -g root -m 0644 "$backup/max-order-reconcile.timer.new" /etc/systemd/system/max-order-reconcile.timer
+          systemctl daemon-reload
+          systemctl restart max-webhook.service
+          systemctl is-active --quiet max-webhook.service
+
+          pid="$(systemctl show max-webhook.service -p MainPID --value)"
+          python3 - "$pid" "$py" "$app_root" "$app_root/scripts/reconcile_new_orders.py" <<'PY'
+          import os, subprocess, sys
+          from pathlib import Path
+          pid, python, cwd, script = sys.argv[1:]
+          env = {}
+          for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+              if b"=" in raw:
+                  key, value = raw.split(b"=", 1)
+                  env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+          completed = subprocess.run(
+              [python, script, "--hours", "6", "--bootstrap"],
+              cwd=cwd, env=env, capture_output=True, text=True, timeout=180,
+          )
+          if completed.returncode:
+              raise SystemExit(completed.returncode)
+          PY
+          chown maxbot:maxbot "$app_root/data/new_order_reconcile_state.json"
+          chmod 0600 "$app_root/data/new_order_reconcile_state.json"
+
+          systemctl enable --now max-order-reconcile.timer
+          systemctl start max-order-reconcile.service
+          systemctl is-active --quiet max-order-reconcile.timer
+          systemctl is-active --quiet max-webhook.service
+          systemctl is-active --quiet avr-ai-controller.service
+          test "$(systemctl show max-order-reconcile.service -p Result --value)" = success
+
+          python3 - "$pid" "$backup/protected.before.json" <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          pid, before_path = sys.argv[1:]
+          env = {}
+          for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+              if b"=" in raw:
+                  key, value = raw.split(b"=", 1)
+                  env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+          def digest(value):
+              path = Path(value) if value else None
+              if not path or not path.is_file():
+                  return None
+              h = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for block in iter(lambda: handle.read(1024 * 1024), b""):
+                      h.update(block)
+              return h.hexdigest()
+          before = json.loads(Path(before_path).read_text(encoding="utf-8"))
+          result = {
+              "excel_unchanged": before["excel"] == digest(env.get("EXCEL_FILE_PATH")),
+              "payroll_unchanged": before["payroll"] == digest(env.get("PAYROLL_FILE_PATH")),
+          }
+          print(json.dumps(result))
+          if not all(result.values()):
+              raise SystemExit(1)
+          PY
+
+          committed=1
+          trap - ERR
+          rm -rf -- "$STAGE"
+          printf '%s\n' 'APPROVED_RECONCILE_INSTALL {"installed":true,"timer_active":true,"interval_minutes":2,"max_webhook_active":true,"controller_active":true,"excel_unchanged":true,"payroll_unchanged":true,"backup_created":true}'
+          SH
