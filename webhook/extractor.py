@@ -178,9 +178,15 @@ def _structured_request_overrides(message_text: str) -> dict:
 
 def _vehicle_from_template(message_text: str, plate: str) -> tuple[str | None, str | None]:
     """Read the vehicle line immediately preceding the plate in partner templates."""
+    from webhook.reporting_rules import normalize_plate
+
     lines = [line.strip() for line in message_text.splitlines() if line.strip()]
     plate_index = next(
-        (index for index, line in enumerate(lines) if plate and plate in re.sub(r"\s+", "", line).upper()),
+        (
+            index
+            for index, line in enumerate(lines)
+            if plate and normalize_plate(line) == plate
+        ),
         None,
     )
     if plate_index is None or plate_index == 0:
@@ -347,3 +353,4 @@ def extract_job(message_text: str, sender_name: str = "") -> ExtractedJob:
     )
 
     return job
+
