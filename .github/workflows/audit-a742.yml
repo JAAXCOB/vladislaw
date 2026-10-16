@@ -83,19 +83,26 @@ jobs:
                           continue
                       mid = str((message.body.mid if message.body else "") or "")
                       sender = message.sender.first_name if message.sender else ""
-                      job = extract_job(text, sender)
+                      parse_error = ""
+                      try:
+                          job = extract_job(text, sender)
+                      except Exception as exc:
+                          job = None
+                          parse_error = f"{type(exc).__name__}: {str(exc).splitlines()[0]}"[:180]
                       source_id = f"max:{chat_id}:{mid}"
                       target_ids.append(source_id)
                       occurrences.append({
                           "mid": mid,
                           "source_id": source_id,
                           "timestamp": datetime.fromtimestamp(int(raw.get("timestamp") or 0) / 1000, tz=timezone.utc).isoformat(),
-                          "new": bool(job.is_new_job_request),
-                          "closed": bool(job.is_closed_job_report),
-                          "plate": job.license_plate,
-                          "vehicle_present": bool(" ".join(x for x in (job.vehicle_make, job.vehicle_model) if x).strip()),
-                          "pickup_present": bool(job.pickup_address),
-                          "destination_present": bool(job.destination),
+                          "sender_is_bot": bool(message.sender and message.sender.is_bot),
+                          "new": bool(job and job.is_new_job_request),
+                          "closed": bool(job and job.is_closed_job_report),
+                          "plate": job.license_plate if job else None,
+                          "vehicle_present": bool(job and " ".join(x for x in (job.vehicle_make, job.vehicle_model) if x).strip()),
+                          "pickup_present": bool(job and job.pickup_address),
+                          "destination_present": bool(job and job.destination),
+                          "parse_error": parse_error,
                       })
                   if len(batch) < 100:
                       break
