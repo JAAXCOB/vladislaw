@@ -1,0 +1,133 @@
+name: Inspect failed MAX recovery safely
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/inspect-max-recovery.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Return safe failure class and replay evidence
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=20 root@130.49.173.150 'python3 -B -' <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          TARGETS = ("А742ОО797", "Н384РТ797")
+
+          def norm(value):
+              table = str.maketrans({"A":"А","B":"В","C":"С","E":"Е","H":"Н","K":"К","M":"М","O":"О","P":"Р","T":"Т","X":"Х","Y":"У"})
+              return re.sub(r"[^А-Я0-9]", "", str(value).upper().replace("Ё", "Е").translate(table))
+
+          pid = int(subprocess.run(
+              ["systemctl", "show", "max-webhook.service", "-p", "MainPID", "--value"],
+              capture_output=True, text=True, check=True,
+          ).stdout.strip() or "0")
+          env = {}
+          for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+              if b"=" in raw:
+                  key, value = raw.split(b"=", 1)
+                  env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+          cwd = Path(os.readlink(f"/proc/{pid}/cwd"))
+          cmdline = [x.decode(errors="ignore") for x in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0") if x]
+          executable = Path(cmdline[0])
+          if "python" not in executable.name.casefold():
+              executable = executable.parent / "python"
+          staged = Path("/tmp/avr-reconcile-38945952931.py")
+
+          child_env = dict(env)
+          child_env["PYTHONPATH"] = str(cwd) + os.pathsep + child_env.get("PYTHONPATH", "")
+          probe = subprocess.run(
+              [str(executable), str(staged), "--help"],
+              cwd=cwd, env=child_env, capture_output=True, text=True, timeout=60,
+          )
+          error_line = ""
+          if probe.returncode:
+              lines = [line.strip() for line in probe.stderr.splitlines() if line.strip()]
+              error_line = lines[-1] if lines else "unknown"
+              error_line = re.sub(r"[/\\][^\s:'\"]+", "<path>", error_line)
+              error_line = error_line[:180]
+
+          queue_value = env.get("AV_RESCUE_SYNC_QUEUE_PATH", "data/av_rescue_sync_queue.json")
+          queue = Path(queue_value)
+          if not queue.is_absolute():
+              queue = cwd / queue
+          dead = queue.with_name(queue.stem + ".dead" + queue.suffix)
+          queue_hits = {}
+          for target in TARGETS:
+              queue_hits[target] = False
+              for path in (queue, dead):
+                  try:
+                      queue_hits[target] = queue_hits[target] or norm(target) in norm(path.read_text(encoding="utf-8"))
+                  except Exception:
+                      pass
+
+          token = env.get("MAX_BOT_TOKEN", "")
+          base = env.get("MAX_API_BASE", "https://platform-api2.max.ru").rstrip("/")
+          chat_ids = [x.strip() for x in env.get("MAX_CHAT_ID", "").split(",") if x.strip()]
+          target_mids = {}
+          messages = []
+          for chat_id in chat_ids:
+              query = urllib.parse.urlencode({"chat_id": chat_id, "count": 100})
+              request = urllib.request.Request(base + "/messages?" + query, headers={"Authorization": token})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  batch = json.loads(response.read()).get("messages") or []
+              messages.extend(batch)
+              for message in batch:
+                  text = str((message.get("body") or {}).get("text") or "")
+                  for target in TARGETS:
+                      if norm(target) in norm(text):
+                          target_mids[target] = str((message.get("body") or {}).get("mid") or "")
+
+          reply_seen = {target: False for target in TARGETS}
+          for message in messages:
+              link = message.get("link") or (message.get("body") or {}).get("link") or {}
+              linked_mid = ""
+              if isinstance(link, dict):
+                  linked = link.get("message") or {}
+                  if isinstance(linked, dict):
+                      linked_mid = str((linked.get("body") or {}).get("mid") or linked.get("mid") or "")
+                  linked_mid = linked_mid or str(link.get("mid") or "")
+              for target, mid in target_mids.items():
+                  if mid and linked_mid == mid:
+                      reply_seen[target] = True
+
+          print("APPROVED_RECOVERY_INSPECT " + json.dumps({
+              "preflight_ok": probe.returncode == 0,
+              "error_class": error_line,
+              "queued_or_dead": {
+                  "a742": queue_hits[TARGETS[0]],
+                  "n384": queue_hits[TARGETS[1]],
+              },
+              "ack_reply_seen": {
+                  "a742": reply_seen[TARGETS[0]],
+                  "n384": reply_seen[TARGETS[1]],
+              },
+              "max_webhook_active": subprocess.run(
+                  ["systemctl", "is-active", "--quiet", "max-webhook.service"]
+              ).returncode == 0,
+          }, ensure_ascii=False))
+          PY
