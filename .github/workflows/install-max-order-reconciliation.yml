@@ -157,8 +157,10 @@ jobs:
           from pathlib import Path
           source, destination, root, python, env_file = sys.argv[1:]
           text = Path(source).read_text(encoding="utf-8")
-          text = text.replace("/opt/vladislaw/.venv/bin/python", python)
-          text = text.replace("/opt/vladislaw", root)
+          text = text.replace("/opt/vladislaw/.venv/bin/python", "__AVR_PYTHON__")
+          text = text.replace("/opt/vladislaw", "__AVR_ROOT__")
+          text = text.replace("__AVR_PYTHON__", python)
+          text = text.replace("__AVR_ROOT__", root)
           text = text.replace(f"EnvironmentFile={root}/.env", f"EnvironmentFile={env_file}")
           Path(destination).write_text(text, encoding="utf-8")
           PY
