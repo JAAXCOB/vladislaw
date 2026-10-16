@@ -110,7 +110,7 @@ jobs:
           print(user_id)
           PY
           )
-          unset MAX_DISCOVERY_TOKEN max_token
+          unset MAX_DISCOVERY_TOKEN
           [[ "${#ids[@]}" -eq 2 ]]
           chat_id="${ids[0]}"
           user_id="${ids[1]}"
@@ -121,7 +121,8 @@ jobs:
             | sort -z | xargs -0 -r sha256sum >"$before"
           cp -a -- "$env_file" "$backup"
 
-          CHAT_ID="$chat_id" USER_ID="$user_id" python3 - "$env_file" "$tmp" <<'PY'
+          CHAT_ID="$chat_id" USER_ID="$user_id" MAX_TOKEN_VALUE="$max_token" \
+            python3 - "$env_file" "$tmp" <<'PY'
           import os
           import sys
           from pathlib import Path
@@ -130,6 +131,7 @@ jobs:
           target = Path(sys.argv[2])
           updates = {
               "AVR_AI_MAX_CONTROL_ENABLED": "false",
+              "AVR_AI_MAX_CONTROL_TOKEN": os.environ["MAX_TOKEN_VALUE"],
               "AVR_AI_MAX_CONTROL_CHAT_ID": os.environ["CHAT_ID"],
               "AVR_AI_MAX_CONTROL_USER_IDS": os.environ["USER_ID"],
           }
@@ -147,6 +149,7 @@ jobs:
                   output.append(f"{key}={value}")
           target.write_text("\n".join(output) + "\n", encoding="utf-8")
           PY
+          unset max_token
 
           install -o root -g avrai -m 0640 -- "$tmp" "$env_file"
           applied=true
