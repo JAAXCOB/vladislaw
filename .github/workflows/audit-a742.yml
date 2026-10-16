@@ -27,7 +27,7 @@ jobs:
           install -d -m 0700 "$HOME/.ssh"
           printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
           chmod 0600 "$HOME/.ssh/known_hosts"
-          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=20 root@130.49.173.150 'python3 -B -' <<'PY'
+          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=20 root@130.49.173.150 'pid="$(systemctl show max-webhook.service -p MainPID --value)"; cwd="$(readlink -f "/proc/$pid/cwd")"; cmd0="$(tr "\0" "\n" <"/proc/$pid/cmdline" | head -n1)"; py="$cmd0"; case "$(basename "$py")" in *python*) ;; *) py="$(dirname "$cmd0")/python" ;; esac; cd "$cwd"; exec "$py" -B -' <<'PY'
           import json
           import os
           import re
@@ -55,6 +55,7 @@ jobs:
                   key, value = raw.split(b"=", 1)
                   env[key.decode(errors="ignore")] = value.decode(errors="ignore")
           cwd = Path(os.readlink(f"/proc/{pid}/cwd"))
+          os.environ.update(env)
           sys.path.insert(0, str(cwd))
           from webhook.extractor import extract_job
           from webhook.models import Message
