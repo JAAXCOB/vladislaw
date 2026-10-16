@@ -1,0 +1,156 @@
+name: Recover two missed MAX orders safely
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/recover-two-max-orders.yml
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/max-order-reconciliation-20261016
+      - name: Stage tested reconciler
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          remote=/tmp/avr-reconcile-${GITHUB_RUN_ID}.py
+          sshpass -e scp -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" scripts/reconcile_new_orders.py root@130.49.173.150:"$remote"
+          sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=20 root@130.49.173.150 "REMOTE_SCRIPT='$remote' python3 -B -" <<'PY'
+          import hashlib
+          import json
+          import os
+          import shutil
+          import subprocess
+          import sys
+          import time
+          from pathlib import Path
+
+          TARGETS = ("А742ОО797", "Н384РТ797")
+
+          def digest(path_value):
+              if not path_value:
+                  return None
+              path = Path(path_value)
+              if not path.exists() or not path.is_file():
+                  return None
+              h = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for block in iter(lambda: handle.read(1024 * 1024), b""):
+                      h.update(block)
+              return h.hexdigest()
+
+          def normalized(value):
+              table = str.maketrans({"A":"А","B":"В","C":"С","E":"Е","H":"Н","K":"К","M":"М","O":"О","P":"Р","T":"Т","X":"Х","Y":"У"})
+              return "".join(ch for ch in str(value).upper().replace("Ё", "Е").translate(table) if ch.isalnum())
+
+          pid_text = subprocess.run(
+              ["systemctl", "show", "max-webhook.service", "-p", "MainPID", "--value"],
+              capture_output=True, text=True, check=True,
+          ).stdout.strip()
+          pid = int(pid_text or "0")
+          if not pid:
+              raise SystemExit("max-webhook has no running process")
+
+          process_env = {}
+          for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+              if b"=" in raw:
+                  key, value = raw.split(b"=", 1)
+                  process_env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+          cwd = Path(os.readlink(f"/proc/{pid}/cwd"))
+          cmdline = [
+              item.decode(errors="ignore")
+              for item in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+              if item
+          ]
+          if not cmdline:
+              raise SystemExit("cannot resolve max-webhook interpreter")
+          executable = Path(cmdline[0])
+          if "python" not in executable.name.casefold():
+              candidate = executable.parent / "python"
+              if candidate.exists():
+                  executable = candidate
+              else:
+                  raise SystemExit("cannot resolve service Python")
+
+          queue_value = process_env.get("AV_RESCUE_SYNC_QUEUE_PATH", "data/av_rescue_sync_queue.json")
+          queue_path = Path(queue_value)
+          if not queue_path.is_absolute():
+              queue_path = cwd / queue_path
+          dead_path = queue_path.with_name(queue_path.stem + ".dead" + queue_path.suffix)
+
+          backup = Path("/opt/vladislaw/backups") / ("missed-orders-" + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
+          backup.mkdir(parents=True, mode=0o700)
+          for path in (queue_path, dead_path):
+              if path.exists():
+                  shutil.copy2(path, backup / path.name)
+
+          before = {
+              "excel": digest(process_env.get("EXCEL_FILE_PATH")),
+              "payroll": digest(process_env.get("PAYROLL_FILE_PATH")),
+          }
+          child_env = dict(process_env)
+          child_env["PYTHONPATH"] = str(cwd) + os.pathsep + child_env.get("PYTHONPATH", "")
+          command = [
+              str(executable), os.environ["REMOTE_SCRIPT"], "--hours", "6",
+              "--only-plate", TARGETS[0], "--only-plate", TARGETS[1],
+          ]
+          completed = subprocess.run(
+              command, cwd=cwd, env=child_env, capture_output=True, text=True, timeout=180,
+          )
+          if completed.returncode != 0:
+              print("RECOVERY_SCRIPT_STATUS " + json.dumps({
+                  "ok": False,
+                  "exit_code": completed.returncode,
+                  "error_type": "targeted_replay_failed",
+              }))
+              raise SystemExit(1)
+          summary = json.loads(completed.stdout.strip().splitlines()[-1])
+          after = {
+              "excel": digest(process_env.get("EXCEL_FILE_PATH")),
+              "payroll": digest(process_env.get("PAYROLL_FILE_PATH")),
+          }
+
+          queued_targets = False
+          for path in (queue_path, dead_path):
+              if not path.exists():
+                  continue
+              content = normalized(path.read_text(encoding="utf-8"))
+              queued_targets = queued_targets or any(normalized(item) in content for item in TARGETS)
+
+          result = {
+              "ok": summary.get("replayed") == 2 and not queued_targets,
+              "requested": 2,
+              "replayed": int(summary.get("replayed", 0)),
+              "queued_or_dead": queued_targets,
+              "excel_unchanged": before["excel"] == after["excel"],
+              "payroll_unchanged": before["payroll"] == after["payroll"],
+              "max_webhook_active": subprocess.run(
+                  ["systemctl", "is-active", "--quiet", "max-webhook.service"]
+              ).returncode == 0,
+              "backup_created": backup.exists(),
+          }
+          print("APPROVED_RECOVERY " + json.dumps(result, ensure_ascii=False))
+          if not all((
+              result["ok"], result["excel_unchanged"], result["payroll_unchanged"],
+              result["max_webhook_active"], result["backup_created"],
+          )):
+              raise SystemExit(1)
+          Path(os.environ["REMOTE_SCRIPT"]).unlink(missing_ok=True)
+          PY
