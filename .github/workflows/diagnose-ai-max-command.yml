@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Classify recent controller errors
+      - name: Classify recent controller exceptions
         shell: bash
         env:
           SSHPASS: ${{ secrets.SERVER_PASSWORD }}
@@ -41,18 +41,19 @@ jobs:
           import subprocess
 
           journal = subprocess.run(
-              ["journalctl", "-u", "avr-ai-controller.service", "--since", "20 minutes ago",
+              ["journalctl", "-u", "avr-ai-controller.service", "--since", "25 minutes ago",
                "--no-pager", "-o", "cat"],
               capture_output=True, text=True, timeout=20,
           ).stdout
-          result = {
-              "send_http_400": journal.count("MAX control send failed with HTTP 400"),
-              "send_http_401": journal.count("MAX control send failed with HTTP 401"),
-              "send_http_403": journal.count("MAX control send failed with HTTP 403"),
-              "send_http_404": journal.count("MAX control send failed with HTTP 404"),
-              "send_http_429": journal.count("MAX control send failed with HTTP 429"),
-              "send_http_500": journal.count("MAX control send failed with HTTP 500"),
-              "traceback_count": journal.count("Traceback (most recent call last)"),
-          }
-          print("AVR_MAX_ERROR_CLASSES " + json.dumps(result, ensure_ascii=False))
+          needles = [
+              "httpx.ConnectError", "httpx.ConnectTimeout", "httpx.ReadTimeout",
+              "httpx.RemoteProtocolError", "RuntimeError", "AttributeError",
+              "TypeError", "KeyError", "ValueError", "sqlite3.",
+              "in _send", "in handle_command", "in process_update",
+              "in max_control_webhook",
+          ]
+          print("AVR_MAX_EXCEPTION_CLASSES " + json.dumps(
+              {needle: journal.count(needle) for needle in needles},
+              ensure_ascii=False,
+          ))
           PY
