@@ -49,6 +49,7 @@ jobs:
           from pathlib import Path
 
           TARGET = "А742ОО797"
+          TARGET_MID = "mid.ffffbd67f622453201a145a3d6262974"
 
           def digest(value):
               path = Path(value) if value else None
@@ -99,7 +100,7 @@ jobs:
           }
           base_command = [
               str(executable), os.environ["REMOTE_SCRIPT"], "--hours", "6",
-              "--only-plate", TARGET,
+              "--only-mid", TARGET_MID,
           ]
           dry = subprocess.run(
               base_command + ["--dry-run"], cwd=cwd, env=child_env,
