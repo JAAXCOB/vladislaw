@@ -1,4 +1,4 @@
-name: Install MAX sync queue retry and recover U647SE797 # retry 6
+name: Install MAX sync queue retry and recover U647SE797 # retry 7
 
 on:
   push:
@@ -91,6 +91,12 @@ jobs:
           PY
           chown maxbot:maxbot /opt/vladislaw/data/av_rescue_sync_queue.json
           chmod 0640 /opt/vladislaw/data/av_rescue_sync_queue.json
+          for state_file in /opt/vladislaw/data/new_order_reconcile_state.json /opt/vladislaw/data/new_order_reconcile.run /opt/vladislaw/data/new_order_reconcile.run.lock; do
+            if [ -e "$state_file" ]; then
+              chown maxbot:maxbot "$state_file"
+              chmod 0640 "$state_file"
+            fi
+          done
 
           "$py" - "$pid" "$backup/protected.before.json" <<'PY'
           import hashlib, json, os, sys
