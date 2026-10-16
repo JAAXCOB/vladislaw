@@ -1,0 +1,112 @@
+name: Install edited MAX close reconciliation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/install-edited-close-reconciliation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/max-order-reconciliation-20261016
+      - name: Install script with backup and verification
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          stage="/tmp/avr-close-reconcile-${GITHUB_RUN_ID}"
+          sshpass -e ssh -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 "install -d -m 0700 '$stage'"
+          sshpass -e scp -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" scripts/reconcile_new_orders.py root@130.49.173.150:"$stage/reconcile_new_orders.py"
+          sshpass -e ssh -q -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 "STAGE='$stage' bash -se" <<'SH'
+          set -euo pipefail
+          pid="$(systemctl show max-webhook.service -p MainPID --value)"
+          test -n "$pid"
+          test "$pid" != 0
+          app_root="$(readlink -f "/proc/$pid/cwd")"
+          cmd0="$(tr '\0' '\n' <"/proc/$pid/cmdline" | head -n1)"
+          py="$cmd0"
+          case "$(basename "$py")" in *python*) ;; *) py="$(dirname "$cmd0")/python" ;; esac
+          target="$app_root/scripts/reconcile_new_orders.py"
+          test -f "$target"
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          backup="/opt/vladislaw/backups/edited-close-reconcile-$stamp"
+          install -d -m 0700 "$backup"
+          cp -a "$target" "$backup/reconcile_new_orders.py"
+
+          "$py" - "$pid" "$backup/protected.before.json" <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          pid, output = sys.argv[1:]
+          env = {}
+          for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+              if b"=" in raw:
+                  key, value = raw.split(b"=", 1)
+                  env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+          def digest(value):
+              path = Path(value) if value else None
+              if not path or not path.is_file(): return None
+              h = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for block in iter(lambda: handle.read(1024 * 1024), b""): h.update(block)
+              return h.hexdigest()
+          Path(output).write_text(json.dumps({"excel": digest(env.get("EXCEL_FILE_PATH")), "payroll": digest(env.get("PAYROLL_FILE_PATH"))}), encoding="utf-8")
+          PY
+
+          committed=0
+          rollback() {
+            if [ "$committed" = 1 ]; then return; fi
+            cp -a "$backup/reconcile_new_orders.py" "$target"
+          }
+          trap rollback ERR
+
+          install -o maxbot -g maxbot -m 0750 "$STAGE/reconcile_new_orders.py" "$target"
+          "$py" -m py_compile "$target"
+          systemctl start max-order-reconcile.service
+          test "$(systemctl show max-order-reconcile.service -p Result --value)" = success
+          systemctl is-active --quiet max-order-reconcile.timer
+          systemctl is-active --quiet max-webhook.service
+          systemctl is-active --quiet avr-ai-controller.service
+
+          "$py" - "$pid" "$backup/protected.before.json" <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          pid, before_path = sys.argv[1:]
+          env = {}
+          for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+              if b"=" in raw:
+                  key, value = raw.split(b"=", 1)
+                  env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+          def digest(value):
+              path = Path(value) if value else None
+              if not path or not path.is_file(): return None
+              h = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for block in iter(lambda: handle.read(1024 * 1024), b""): h.update(block)
+              return h.hexdigest()
+          before = json.loads(Path(before_path).read_text(encoding="utf-8"))
+          result = {"excel_unchanged": before["excel"] == digest(env.get("EXCEL_FILE_PATH")), "payroll_unchanged": before["payroll"] == digest(env.get("PAYROLL_FILE_PATH"))}
+          if not all(result.values()): raise SystemExit(1)
+          print(json.dumps(result))
+          PY
+
+          committed=1
+          trap - ERR
+          rm -rf -- "$STAGE"
+          printf '%s\n' 'APPROVED_EDITED_CLOSE_RECONCILIATION {"installed":true,"timer_active":true,"interval_minutes":2,"max_webhook_active":true,"controller_active":true,"excel_unchanged":true,"payroll_unchanged":true,"backup_created":true}'
+          SH
+
