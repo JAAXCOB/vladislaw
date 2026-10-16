@@ -31,9 +31,11 @@ jobs:
       - name: Discover closed chat and store disabled allowlist
         shell: bash
         env:
+          MAX_TOKEN: ${{ secrets.AVR_AI_MAX_CONTROL_TOKEN }}
           SSHPASS: ${{ secrets.SERVER_PASSWORD }}
         run: |
           set -euo pipefail
+          test -n "$MAX_TOKEN"
           test -n "$SSHPASS"
 
           install -d -m 0700 "$HOME/.ssh"
@@ -70,21 +72,18 @@ jobs:
           }
           trap cleanup EXIT
 
+          IFS= read -r max_token
+          [[ -n "$max_token" ]]
+          export MAX_DISCOVERY_TOKEN="$max_token"
           readarray -t ids < <(python3 - "$env_file" <<'PY'
           import json
+          import os
           import ssl
-          import sys
           import urllib.request
-          from pathlib import Path
 
-          values = {}
-          for raw in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
-              if "=" in raw and not raw.lstrip().startswith("#"):
-                  key, value = raw.split("=", 1)
-                  values[key.strip()] = value.strip()
-          token = values.get("AVR_AI_MAX_CONTROL_TOKEN", "")
+          token = os.environ.get("MAX_DISCOVERY_TOKEN", "")
           if not token:
-              raise SystemExit("MAX control token is absent on the server")
+              raise SystemExit("MAX discovery token is absent")
 
           request = urllib.request.Request(
               "https://platform-api2.max.ru/updates?limit=100&timeout=0",
@@ -111,6 +110,7 @@ jobs:
           print(user_id)
           PY
           )
+          unset MAX_DISCOVERY_TOKEN max_token
           [[ "${#ids[@]}" -eq 2 ]]
           chat_id="${ids[0]}"
           user_id="${ids[1]}"
@@ -164,7 +164,8 @@ jobs:
           remote_script="/root/configure-max-allowlist-${GITHUB_RUN_ID}.sh"
           sshpass -e scp "${ssh_options[@]}" configure-max-allowlist.sh \
             "root@130.49.173.150:$remote_script"
-          sshpass -e ssh "${ssh_options[@]}" root@130.49.173.150 \
-            "trap 'rm -f -- $remote_script' EXIT; bash $remote_script"
+          printf '%s\n' "$MAX_TOKEN" \
+            | sshpass -e ssh "${ssh_options[@]}" root@130.49.173.150 \
+                "trap 'rm -f -- $remote_script' EXIT; bash $remote_script"
 
-          unset SSHPASS
+          unset MAX_TOKEN SSHPASS
