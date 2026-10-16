@@ -77,3 +77,24 @@ def test_bootstrap_records_without_site_sync(monkeypatch) -> None:
 
     assert result["replayed"] == 0
     assert "mid-1" in state
+
+
+def test_dry_run_classifies_without_sync_or_state_change(monkeypatch) -> None:
+    monkeypatch.setattr(
+        module,
+        "sync_extracted_job",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not sync")),
+    )
+    state: dict[str, str] = {}
+
+    result = module.reconcile_messages(
+        [_message("mid-1", ORDER)],
+        "-10",
+        state,
+        only_plates={"Н384РТ797"},
+        dry_run=True,
+    )
+
+    assert result["new_orders"] == 1
+    assert result["replayed"] == 0
+    assert state == {}

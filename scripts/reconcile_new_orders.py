@@ -102,6 +102,7 @@ def reconcile_messages(
     *,
     only_plates: set[str] | None = None,
     bootstrap: bool = False,
+    dry_run: bool = False,
 ) -> dict[str, int]:
     counts = {"scanned": 0, "unchanged": 0, "new_orders": 0, "replayed": 0, "ignored": 0}
     for raw in raw_messages:
@@ -134,11 +135,13 @@ def reconcile_messages(
         job = extract_job(text, sender_name)
         if job.is_new_job_request:
             counts["new_orders"] += 1
-            sync_extracted_job(job, chat_id, mid, text)
-            counts["replayed"] += 1
+            if not dry_run:
+                sync_extracted_job(job, chat_id, mid, text)
+                counts["replayed"] += 1
         else:
             counts["ignored"] += 1
-        state[mid] = fingerprint
+        if not dry_run:
+            state[mid] = fingerprint
     return counts
 
 
@@ -152,11 +155,18 @@ def main() -> int:
         action="store_true",
         help="Record the current window without synchronizing it",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Classify matching messages without synchronizing or changing state",
+    )
     args = parser.parse_args()
     if not 1 <= args.hours <= 168:
         parser.error("--hours must be between 1 and 168")
     if args.bootstrap and args.only_plate:
         parser.error("--bootstrap cannot be combined with --only-plate")
+    if args.bootstrap and args.dry_run:
+        parser.error("--bootstrap cannot be combined with --dry-run")
 
     chat_ids = sorted(settings.allowed_chat_ids)
     requested = {_normalize_requested_plate(value) for value in args.only_plate}
@@ -178,13 +188,16 @@ def main() -> int:
                 state,
                 only_plates=requested or None,
                 bootstrap=args.bootstrap,
+                dry_run=args.dry_run,
             )
             for key, value in result.items():
                 summary[key] += value
 
-    _save_state(state)
+    if not args.dry_run:
+        _save_state(state)
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
-    if requested and summary["replayed"] != len(requested):
+    completed = summary["new_orders"] if args.dry_run else summary["replayed"]
+    if requested and completed != len(requested):
         return 2
     return 0
 
