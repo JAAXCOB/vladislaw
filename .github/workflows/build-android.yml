@@ -97,7 +97,7 @@ jobs:
           set -euo pipefail
           sudo useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin avrai
           sudo install -d -o root -g root -m 0755 /opt/vladislaw/ai-controller/current/.venv/bin
-          sudo install -d -o avrai -g avrai -m 0700 /opt/vladislaw/data/ai-controller
+          sudo install -d -o avrai -g avrai -m 0700 /opt/vladislaw/ai-controller-data
           sudo install -m 0755 /usr/bin/true /opt/vladislaw/ai-controller/current/.venv/bin/uvicorn
           sudo install -o root -g avrai -m 0640 /dev/null /opt/vladislaw/.env.ai-controller
           sudo systemd-analyze verify "$GITHUB_WORKSPACE/ops/systemd/avr-ai-controller.service"

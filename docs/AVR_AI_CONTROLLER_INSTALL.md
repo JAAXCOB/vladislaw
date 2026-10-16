@@ -12,7 +12,7 @@ before it is run. This document is preparation, not authorization to connect or 
 - polls the public site health URL, local MAX webhook health, and an OSRM nearest
   endpoint with GET requests;
 - writes a privacy-safe, HMAC-chained action journal under
-  `/opt/vladislaw/data/ai-controller`;
+  `/opt/vladislaw/ai-controller-data`;
 - optionally polls a separate MAX controller bot and accepts only `/status`,
   `/budget`, `/mail`, and `/help` from one closed chat and allowlisted numeric user
   IDs; every command needs a fresh timestamp and a unique nonce;
@@ -47,7 +47,7 @@ Run once as an administrator during an approved maintenance window:
 
 ```bash
 useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin avrai
-install -d -o avrai -g avrai -m 0700 /opt/vladislaw/data/ai-controller
+install -d -o avrai -g avrai -m 0700 /opt/vladislaw/ai-controller-data
 install -d -o root -g avrai -m 0750 /opt/vladislaw/ai-controller
 ```
 
@@ -80,9 +80,10 @@ AVR_AI_YANDEX_MAIL_ENABLED=false
 AVR_AI_GMAIL_ENABLED=false
 ```
 
-Set `AVR_AI_SITE_HEALTH_URL` to an existing GET-only site health endpoint,
+For the current IHC layout use `AVR_AI_SITE_HEALTH_URL=https://av-rescue.ru/`,
 `AVR_AI_MAX_HEALTH_URL=http://127.0.0.1:8000/health`, and
-`AVR_AI_OSRM_BASE_URL` to the actual HTTPS OSRM base. Do not guess an OSRM URL.
+`AVR_AI_OSRM_BASE_URL=http://127.0.0.1:5000`. The public site does not expose a
+working `/health` route, while OSRM is intentionally reached over its local port.
 
 ## 3. Build a controller-only release off the server
 
@@ -147,8 +148,13 @@ systemctl enable --now avr-ai-controller.service
 ```
 
 The unit binds only to `127.0.0.1:8010`, runs as `avrai`, has no capabilities or
-sudo, can write only its own state directory, and is limited to 384 MiB RAM and 50%
-of one CPU.
+sudo, and is limited to 384 MiB RAM and 50% of one CPU. Its only writable application
+path is the separately owned mode-0700 `/opt/vladislaw/ai-controller-data` directory.
+The IHC host runs inside Virtuozzo, whose container policy rejects systemd mount and
+PID namespace hardening such as `ProtectSystem`, `PrivateTmp`, `ProtectProc`, and
+`RestrictNamespaces`. Those directives are intentionally omitted; isolation is
+provided by the dedicated no-login account, empty capability sets, `NoNewPrivileges`,
+filesystem ownership, and resource/address-family restrictions.
 
 Verify:
 
@@ -161,8 +167,9 @@ curl -fsS http://127.0.0.1:8010/audit/verify
 journalctl -u avr-ai-controller.service --since today --no-pager
 ```
 
-Expected budget output has `paid_api_enabled=false` and zero usage/limits. Audit
-verification must return `valid=true`. Confirm that `max-webhook.service` is still
+Expected health output has `status=healthy`. Expected budget output has
+`paid_api_enabled=false` and zero usage/limits. Audit verification must return
+`valid=true`. Confirm that `max-webhook.service` is still
 active and compare hashes of both Excel files before and after starting the new
 service; they must be identical.
 
@@ -220,7 +227,7 @@ The controller owns no authoritative business state. To remove it safely:
 systemctl disable --now avr-ai-controller.service
 ```
 
-Keep `/opt/vladislaw/data/ai-controller/audit.jsonl` for investigation and retention.
+Keep `/opt/vladislaw/ai-controller-data/audit.jsonl` for investigation and retention.
 Removing the unit does not require restoring Excel, reverting orders, changing the
 MAX webhook, or rolling back the website. Delete the controller state only under a
 separate approved retention decision.

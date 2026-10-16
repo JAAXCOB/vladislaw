@@ -349,10 +349,11 @@ def test_systemd_unit_is_unprivileged_and_isolated_from_max_and_excel() -> None:
     assert "Group=avrai" in unit
     assert "NoNewPrivileges=true" in unit
     assert "CapabilityBoundingSet=" in unit
+    assert "AmbientCapabilities=" in unit
     assert "WorkingDirectory=/opt/vladislaw/ai-controller/current" in unit
-    assert "ReadWritePaths=/opt/vladislaw/data/ai-controller" in unit
-    assert "ProtectProc=invisible" in unit
-    assert "RestrictNamespaces=true" in unit
+    assert "MemoryMax=384M" in unit
+    assert "CPUQuota=50%" in unit
+    assert "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX" in unit
     assert "User=root" not in unit
     assert "data/excel" not in unit
     assert "max-webhook.service" not in unit
@@ -367,4 +368,5 @@ def test_example_configuration_disables_paid_and_write_capable_integrations() ->
     assert "AVR_AI_PER_REQUEST_BUDGET_MINOR=0" in example
     assert "AVR_AI_MAX_CONTROL_ENABLED=false" in example
     assert "AVR_AI_MAX_CONTROL_TRANSPORT=webhook" in example
+    assert "AVR_AI_DATA_DIR=/opt/vladislaw/ai-controller-data" in example
     assert "SMTP" not in example
