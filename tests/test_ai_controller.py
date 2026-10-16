@@ -293,6 +293,50 @@ def test_closed_max_control_requires_chat_user_freshness_and_nonce(tmp_path: Pat
     assert urlparse(sent[0].url).path.endswith("/messages")
 
 
+def test_max_control_releases_nonce_when_reply_delivery_fails(tmp_path: Path) -> None:
+    attempts = 0
+
+    def handler(request: RecordedRequest) -> FakeResponse:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ConnectError("temporary MAX connection failure")
+        return FakeResponse(200, {"message": {"body": {"mid": "reply"}}})
+
+    async def command_handler(command: str) -> str:
+        return f"handled:{command}"
+
+    configured = settings(
+        tmp_path,
+        max_control_enabled=True,
+        max_control_transport="webhook",
+        max_control_token="controller-token",
+        max_control_webhook_secret="w" * 32,
+        max_control_chat_id="-100",
+        max_control_user_ids="42",
+    )
+    adapter = MaxControlAdapter(
+        configured,
+        FakeAsyncClient(handler),
+        AuditLog(tmp_path / "max-retry-audit.jsonl", "m" * 32),
+        command_handler,
+    )
+    update = {
+        "update_type": "message_created",
+        "timestamp": int(time.time() * 1000),
+        "message": {
+            "sender": {"user_id": 42},
+            "recipient": {"chat_id": -100},
+            "body": {"text": "/status retry_123"},
+        },
+    }
+
+    with pytest.raises(httpx.ConnectError):
+        run_immediate(adapter.process_update(update))
+    assert run_immediate(adapter.process_update(update)) is True
+    assert attempts == 2
+
+
 def test_closed_max_webhook_is_a_dedicated_post_route(tmp_path: Path) -> None:
     application = create_app(settings(tmp_path))
     route = next(item for item in application.routes if item.path == "/max-control/webhook")
