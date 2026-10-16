@@ -1,0 +1,160 @@
+name: Discover AVR controller MAX chat
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type DISCOVER_AVR_MAX_CHAT to continue
+        required: true
+        type: string
+
+concurrency:
+  group: discover-avr-controller-max-chat
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    if: ${{ inputs.confirm == 'DISCOVER_AVR_MAX_CHAT' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install SSH password client on the runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+
+      - name: Discover closed chat and store disabled allowlist
+        shell: bash
+        env:
+          MAX_TOKEN: ${{ secrets.AVR_AI_MAX_CONTROL_TOKEN }}
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$MAX_TOKEN"
+          test -n "$SSHPASS"
+
+          response="$(curl --fail --silent --show-error \
+            -H "Authorization: $MAX_TOKEN" \
+            'https://platform-api2.max.ru/updates?limit=100&timeout=0')"
+          event="$(jq -c '
+            [.updates[]
+              | select(
+                  .update_type == "bot_started"
+                  or (
+                    .update_type == "message_created"
+                    and .message.body.text == "/start"
+                  )
+                )
+            ] | last
+          ' <<<"$response")"
+          test "$event" != "null"
+
+          chat_id="$(jq -r '
+            if .chat_id != null then .chat_id
+            else .message.recipient.chat_id
+            end
+          ' <<<"$event")"
+          user_id="$(jq -r '
+            if .user.user_id != null then .user.user_id
+            else .message.sender.user_id
+            end
+          ' <<<"$event")"
+          [[ "$chat_id" =~ ^-?[0-9]+$ ]]
+          [[ "$user_id" =~ ^[0-9]+$ ]]
+
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' \
+            '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' \
+            >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          ssh_options=(
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o PreferredAuthentications=password
+            -o PubkeyAuthentication=no
+            -o ConnectTimeout=20
+          )
+
+          cat >configure-max-allowlist.sh <<'REMOTE'
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+          env_file=/opt/vladislaw/.env.ai-controller
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          backup="${env_file}.bak.${stamp}"
+          tmp="$(mktemp /opt/vladislaw/.env.ai-controller.allowlist.XXXXXX)"
+          before="$(mktemp /var/tmp/avr-excel-before.XXXXXX)"
+          after="$(mktemp /var/tmp/avr-excel-after.XXXXXX)"
+          applied=false
+          success=false
+          cleanup() {
+            rc=$?
+            if [[ "$applied" == true && "$success" != true ]]; then
+              install -o root -g avrai -m 0640 -- "$backup" "$env_file" || true
+            fi
+            rm -f -- "$tmp" "$before" "$after"
+            exit "$rc"
+          }
+          trap cleanup EXIT
+
+          IFS= read -r chat_id
+          IFS= read -r user_id
+          [[ "$chat_id" =~ ^-?[0-9]+$ ]]
+          [[ "$user_id" =~ ^[0-9]+$ ]]
+
+          find /opt/vladislaw/data -type f -iname '*.xlsx' -print0 2>/dev/null \
+            | sort -z | xargs -0 -r sha256sum >"$before"
+          cp -a -- "$env_file" "$backup"
+
+          CHAT_ID="$chat_id" USER_ID="$user_id" python3 - "$env_file" "$tmp" <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          source = Path(sys.argv[1])
+          target = Path(sys.argv[2])
+          updates = {
+              "AVR_AI_MAX_CONTROL_ENABLED": "false",
+              "AVR_AI_MAX_CONTROL_CHAT_ID": os.environ["CHAT_ID"],
+              "AVR_AI_MAX_CONTROL_USER_IDS": os.environ["USER_ID"],
+          }
+          seen = set()
+          output = []
+          for raw in source.read_text(encoding="utf-8").splitlines():
+              key = raw.split("=", 1)[0] if "=" in raw else ""
+              if key in updates:
+                  output.append(f"{key}={updates[key]}")
+                  seen.add(key)
+              else:
+                  output.append(raw)
+          for key, value in updates.items():
+              if key not in seen:
+                  output.append(f"{key}={value}")
+          target.write_text("\n".join(output) + "\n", encoding="utf-8")
+          PY
+
+          install -o root -g avrai -m 0640 -- "$tmp" "$env_file"
+          applied=true
+          find /opt/vladislaw/data -type f -iname '*.xlsx' -print0 2>/dev/null \
+            | sort -z | xargs -0 -r sha256sum >"$after"
+          cmp -s -- "$before" "$after"
+          systemctl is-active --quiet avr-ai-controller.service
+          systemctl is-active --quiet max-webhook.service
+          success=true
+          echo MAX_ALLOWLIST_STORED_DISABLED
+          echo EXCEL_HASHES_UNCHANGED
+          REMOTE
+          chmod 0700 configure-max-allowlist.sh
+
+          remote_script="/root/configure-max-allowlist-${GITHUB_RUN_ID}.sh"
+          sshpass -e scp "${ssh_options[@]}" configure-max-allowlist.sh \
+            "root@130.49.173.150:$remote_script"
+          printf '%s\n%s\n' "$chat_id" "$user_id" \
+            | sshpass -e ssh "${ssh_options[@]}" root@130.49.173.150 \
+                "trap 'rm -f -- $remote_script' EXIT; bash $remote_script"
+
+          unset MAX_TOKEN SSHPASS chat_id user_id event response
