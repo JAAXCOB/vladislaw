@@ -1,0 +1,121 @@
+name: Diagnose one MAX order sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/diagnose-one-max-order.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Return only approved found flags and error class
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' \
+            '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' \
+            >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -o ConnectTimeout=20 \
+            root@130.49.173.150 'python3 -B -' <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import zipfile
+          from pathlib import Path
+
+          approved_plate = "А742ОО797"
+          latin_plate = "A742OO797"
+
+          def normalized(value):
+              return re.sub(r"[^A-ZА-Я0-9]", "", str(value).upper().replace("Ё", "Е"))
+
+          def contains_plate(value):
+              text = normalized(value)
+              return normalized(approved_plate) in text or latin_plate in text
+
+          def file_contains(path):
+              try:
+                  return contains_plate(path.read_text(encoding="utf-8", errors="replace"))
+              except OSError:
+                  return False
+
+          def run(args):
+              return subprocess.run(args, capture_output=True, text=True, timeout=30)
+
+          pid = int(run([
+              "systemctl", "show", "max-webhook.service", "-p", "MainPID", "--value"
+          ]).stdout.strip() or "0")
+          cwd = Path(os.readlink(f"/proc/{pid}/cwd")) if pid else Path("/opt/vladislaw")
+          env = {}
+          if pid:
+              for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
+                  if b"=" in raw:
+                      key, value = raw.split(b"=", 1)
+                      env[key.decode(errors="ignore")] = value.decode(errors="ignore")
+
+          queue = Path(env.get("AV_RESCUE_SYNC_QUEUE_PATH", "data/av_rescue_sync_queue.json"))
+          if not queue.is_absolute():
+              queue = cwd / queue
+          dead = queue.with_name(queue.stem + ".dead" + queue.suffix)
+          inbox = Path(env.get("EVENT_INBOX_PATH", "data/event_inbox"))
+          if not inbox.is_absolute():
+              inbox = cwd / inbox
+
+          found_in_inbox = inbox.is_dir() and any(
+              file_contains(path) for path in inbox.rglob("*") if path.is_file()
+          )
+          found_in_excel = False
+          for path in Path("/opt/vladislaw").rglob("*.xlsx"):
+              try:
+                  with zipfile.ZipFile(path) as archive:
+                      if any(
+                          contains_plate(archive.read(name).decode("utf-8", errors="replace"))
+                          for name in archive.namelist()
+                          if name.endswith(".xml")
+                      ):
+                          found_in_excel = True
+                          break
+              except (OSError, zipfile.BadZipFile):
+                  pass
+
+          journal = run([
+              "journalctl", "-u", "max-webhook.service", "--since", "24 hours ago",
+              "--no-pager", "-o", "cat",
+          ]).stdout
+          if "AV Rescue sync request failed" in journal:
+              error_type = "connection_or_request_error"
+          elif "AV Rescue sync failed: HTTP" in journal:
+              error_type = "site_http_error"
+          elif "Rejected unsupported/invalid update" in journal:
+              error_type = "invalid_max_update"
+          else:
+              error_type = "none_observed"
+
+          print("APPROVED_ORDER_TRACE " + json.dumps({
+              "found_in_event_inbox": bool(found_in_inbox),
+              "found_in_excel": bool(found_in_excel),
+              "found_in_pending_site_sync": bool(file_contains(queue)),
+              "found_in_dead_site_sync": bool(file_contains(dead)),
+              "error_type": error_type,
+          }, ensure_ascii=False))
+          PY
