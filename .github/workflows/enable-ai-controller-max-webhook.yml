@@ -1,0 +1,350 @@
+name: Enable AVR AI controller MAX webhook
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_production:
+        description: Type ENABLE_AVR_AI_MAX_WEBHOOK to continue
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: configure-avr-ai-controller-production
+  cancel-in-progress: false
+
+jobs:
+  enable:
+    if: ${{ inputs.confirm_production == 'ENABLE_AVR_AI_MAX_WEBHOOK' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Enable isolated controller route and subscription
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' \
+            '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' \
+            >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -o ConnectTimeout=20 \
+            root@130.49.173.150 'python3 -B -' <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import secrets
+          import shutil
+          import stat
+          import subprocess
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          CADDY = Path("/etc/caddy/Caddyfile")
+          ENV_FILE = Path("/opt/vladislaw/.env.ai-controller")
+          DATA_DIR = Path("/opt/vladislaw/ai-controller-data")
+          HOST = "www.academic-sociable-talisman.ihchost.rocks"
+          MAX_API = "https://platform-api2.max.ru"
+          timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+          caddy_backup = CADDY.with_name(f"Caddyfile.avr-ai-controller-{timestamp}.bak")
+          env_backup = ENV_FILE.with_name(f".env.ai-controller.avr-ai-controller-{timestamp}.bak")
+          temp_caddy = CADDY.with_name("Caddyfile.avr-ai-controller.next")
+          subscription_url = ""
+          token = ""
+          caddy_changed = False
+          env_changed = False
+          subscription_created = False
+
+          def run(args, *, check=True):
+              completed = subprocess.run(
+                  args,
+                  check=False,
+                  capture_output=True,
+                  text=True,
+                  timeout=30,
+                  env={"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"},
+              )
+              if check and completed.returncode:
+                  raise RuntimeError(f"command failed: {args[0]} ({completed.returncode})")
+              return completed
+
+          def require_active(unit):
+              if run(["systemctl", "is-active", unit], check=False).stdout.strip() != "active":
+                  raise RuntimeError(f"required service is not active: {unit}")
+
+          def excel_hashes():
+              result = {}
+              root = Path("/opt/vladislaw")
+              for path in root.rglob("*"):
+                  if not path.is_file() or path.is_symlink():
+                      continue
+                  if path.suffix.casefold() not in {".xlsx", ".xls", ".xlsm"}:
+                      continue
+                  digest = hashlib.sha256()
+                  with path.open("rb") as stream:
+                      for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                          digest.update(chunk)
+                  result[str(path)] = digest.hexdigest()
+              return result
+
+          def parse_env(path):
+              values = {}
+              for raw in path.read_text(encoding="utf-8").splitlines():
+                  line = raw.strip()
+                  if not line or line.startswith("#") or "=" not in raw:
+                      continue
+                  key, value = raw.split("=", 1)
+                  values[key.strip()] = value.strip()
+              return values
+
+          def update_env(path, replacements):
+              lines = path.read_text(encoding="utf-8").splitlines()
+              seen = set()
+              output = []
+              for raw in lines:
+                  if "=" in raw and not raw.lstrip().startswith("#"):
+                      key = raw.split("=", 1)[0].strip()
+                      if key in replacements:
+                          output.append(f"{key}={replacements[key]}")
+                          seen.add(key)
+                          continue
+                  output.append(raw)
+              for key, value in replacements.items():
+                  if key not in seen:
+                      output.append(f"{key}={value}")
+              next_path = path.with_name(path.name + ".next")
+              next_path.write_text("\n".join(output) + "\n", encoding="utf-8")
+              os.chmod(next_path, stat.S_IMODE(path.stat().st_mode))
+              shutil.chown(next_path, user=path.stat().st_uid, group=path.stat().st_gid)
+              os.replace(next_path, path)
+
+          def http_json(method, url, *, headers=None, payload=None, expected=(200,)):
+              data = None
+              request_headers = dict(headers or {})
+              if payload is not None:
+                  data = json.dumps(payload).encode("utf-8")
+                  request_headers["Content-Type"] = "application/json"
+              request = urllib.request.Request(url, data=data, headers=request_headers, method=method)
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      code = response.status
+                      body = response.read()
+              except urllib.error.HTTPError as exc:
+                  code = exc.code
+                  body = exc.read()
+              if code not in expected:
+                  raise RuntimeError(f"unexpected HTTP status for {method}: {code}")
+              if not body:
+                  return code, {}
+              return code, json.loads(body.decode("utf-8"))
+
+          excel_before = excel_hashes()
+          try:
+              require_active("avr-ai-controller.service")
+              require_active("max-webhook.service")
+              require_active("caddy.service")
+              if run(["systemctl", "show", "avr-ai-controller.service", "-p", "User", "--value"]).stdout.strip() != "avrai":
+                  raise RuntimeError("controller is not running as avrai")
+              if not CADDY.is_file() or not ENV_FILE.is_file():
+                  raise RuntimeError("required controller configuration is missing")
+
+              original_caddy = CADDY.read_text(encoding="utf-8")
+              expected_caddy = f"{HOST} {{\n    reverse_proxy 127.0.0.1:8000\n}}\n"
+              if original_caddy != expected_caddy:
+                  raise RuntimeError("Caddyfile changed since read-only inspection")
+              current = parse_env(ENV_FILE)
+              token = current.get("AVR_AI_MAX_CONTROL_TOKEN", "")
+              chat_id = current.get("AVR_AI_MAX_CONTROL_CHAT_ID", "")
+              user_ids = current.get("AVR_AI_MAX_CONTROL_USER_IDS", "")
+              if not token or not chat_id.lstrip("-").isdigit() or not user_ids or not all(
+                  value.strip().isdigit() for value in user_ids.split(",") if value.strip()
+              ):
+                  raise RuntimeError("controller MAX credentials or allowlist are incomplete")
+              if current.get("AVR_AI_MAX_CONTROL_ENABLED", "").casefold() != "false":
+                  raise RuntimeError("controller MAX access is not in the expected disabled state")
+
+              auth = {"Authorization": token}
+              _, existing = http_json("GET", f"{MAX_API}/subscriptions", headers=auth)
+              subscriptions = existing.get("subscriptions")
+              if not isinstance(subscriptions, list) or subscriptions:
+                  raise RuntimeError("controller bot already has an unexpected subscription")
+
+              route_id = secrets.token_urlsafe(18)
+              webhook_secret = secrets.token_urlsafe(48)
+              public_path = f"/avr-ai-controller-{route_id}/max-control/webhook"
+              subscription_url = f"https://{HOST}{public_path}"
+              replacement_caddy = (
+                  f"{HOST} {{\n"
+                  f"    handle {public_path} {{\n"
+                  "        rewrite * /max-control/webhook\n"
+                  "        reverse_proxy 127.0.0.1:8010\n"
+                  "    }\n"
+                  "    handle {\n"
+                  "        reverse_proxy 127.0.0.1:8000\n"
+                  "    }\n"
+                  "}\n"
+              )
+
+              shutil.copy2(CADDY, caddy_backup)
+              shutil.copy2(ENV_FILE, env_backup)
+              temp_caddy.write_text(replacement_caddy, encoding="utf-8")
+              os.chmod(temp_caddy, stat.S_IMODE(CADDY.stat().st_mode))
+              shutil.chown(temp_caddy, user=CADDY.stat().st_uid, group=CADDY.stat().st_gid)
+              run(["caddy", "validate", "--config", str(temp_caddy), "--adapter", "caddyfile"])
+
+              update_env(
+                  ENV_FILE,
+                  {
+                      "AVR_AI_MAX_CONTROL_ENABLED": "true",
+                      "AVR_AI_MAX_CONTROL_TRANSPORT": "webhook",
+                      "AVR_AI_MAX_CONTROL_WEBHOOK_SECRET": webhook_secret,
+                  },
+              )
+              env_changed = True
+              os.replace(temp_caddy, CADDY)
+              caddy_changed = True
+              run(["systemctl", "restart", "avr-ai-controller.service"])
+              run(["systemctl", "reload", "caddy.service"])
+              require_active("avr-ai-controller.service")
+              require_active("max-webhook.service")
+              require_active("caddy.service")
+
+              loopback = "http://127.0.0.1:8010/max-control/webhook"
+              code, _ = http_json("POST", loopback, payload={}, expected=(403,))
+              if code != 403:
+                  raise RuntimeError("missing webhook secret was not rejected")
+              code, _ = http_json(
+                  "POST",
+                  loopback,
+                  headers={"X-Max-Bot-Api-Secret": "wrong"},
+                  payload={},
+                  expected=(403,),
+              )
+              if code != 403:
+                  raise RuntimeError("wrong webhook secret was not rejected")
+              allowed_user_ids = {int(value.strip()) for value in user_ids.split(",") if value.strip()}
+              probe_user_id = 0 if 0 not in allowed_user_ids else 1
+              synthetic = {
+                  "update_type": "message_created",
+                  "timestamp": int(time.time() * 1000),
+                  "message": {
+                      "sender": {"user_id": probe_user_id},
+                      "recipient": {"chat_id": int(chat_id)},
+                      "body": {"text": "/status deployment_probe"},
+                  },
+              }
+              code, accepted = http_json(
+                  "POST",
+                  loopback,
+                  headers={"X-Max-Bot-Api-Secret": webhook_secret},
+                  payload=synthetic,
+              )
+              if code != 200 or accepted != {"ok": True, "processed": False}:
+                  raise RuntimeError("valid secret or unauthorized-user filter failed")
+
+              code, _ = http_json("POST", subscription_url, payload={}, expected=(403,))
+              if code != 403:
+                  raise RuntimeError("public route did not reject a missing secret")
+              code, _ = http_json(
+                  "POST",
+                  subscription_url,
+                  headers={"X-Max-Bot-Api-Secret": "wrong"},
+                  payload={},
+                  expected=(403,),
+              )
+              if code != 403:
+                  raise RuntimeError("public route did not reject a wrong secret")
+              code, accepted = http_json(
+                  "POST",
+                  subscription_url,
+                  headers={"X-Max-Bot-Api-Secret": webhook_secret},
+                  payload=synthetic,
+              )
+              if code != 200 or accepted != {"ok": True, "processed": False}:
+                  raise RuntimeError("public route did not preserve controller filtering")
+
+              _, created = http_json(
+                  "POST",
+                  f"{MAX_API}/subscriptions",
+                  headers=auth,
+                  payload={
+                      "url": subscription_url,
+                      "update_types": ["message_created"],
+                      "secret": webhook_secret,
+                  },
+              )
+              if created.get("success") is not True:
+                  raise RuntimeError("MAX rejected the controller subscription")
+              subscription_created = True
+              _, verified = http_json("GET", f"{MAX_API}/subscriptions", headers=auth)
+              matches = [
+                  item
+                  for item in (verified.get("subscriptions") or [])
+                  if item.get("url") == subscription_url
+              ]
+              if len(matches) != 1 or matches[0].get("update_types") != ["message_created"]:
+                  raise RuntimeError("MAX subscription verification failed")
+
+              if excel_hashes() != excel_before:
+                  raise RuntimeError("Excel files changed during controller enablement")
+              require_active("max-webhook.service")
+              DATA_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+              route_record = DATA_DIR / "max-controller-webhook.json"
+              route_record.write_text(
+                  json.dumps(
+                      {
+                          "url": subscription_url,
+                          "enabled_at_utc": timestamp,
+                          "update_types": ["message_created"],
+                      },
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+                  + "\n",
+                  encoding="utf-8",
+              )
+              os.chmod(route_record, 0o600)
+              shutil.chown(route_record, user="avrai", group="avrai")
+              print("AVR_AI_MAX_WEBHOOK enabled")
+              print("AVR_AI_MAX_WEBHOOK route=" + public_path)
+              print("AVR_AI_MAX_WEBHOOK excel_unchanged=true")
+              print("AVR_AI_MAX_WEBHOOK existing_bot_active=true")
+          except Exception as exc:
+              print("AVR_AI_MAX_WEBHOOK rollback=" + type(exc).__name__)
+              if subscription_created and subscription_url and token:
+                  try:
+                      http_json(
+                          "DELETE",
+                          f"{MAX_API}/subscriptions?url={urllib.parse.quote(subscription_url, safe='')}",
+                          headers={"Authorization": token},
+                      )
+                  except Exception:
+                      pass
+              if env_changed and env_backup.exists():
+                  shutil.copy2(env_backup, ENV_FILE)
+              if caddy_changed and caddy_backup.exists():
+                  shutil.copy2(caddy_backup, CADDY)
+              if temp_caddy.exists():
+                  temp_caddy.unlink()
+              run(["systemctl", "restart", "avr-ai-controller.service"], check=False)
+              run(["systemctl", "reload", "caddy.service"], check=False)
+              raise
+          PY
+
