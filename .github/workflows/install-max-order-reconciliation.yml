@@ -195,7 +195,11 @@ jobs:
           chmod 0600 "$app_root/data/new_order_reconcile_state.json"
 
           systemctl enable --now max-order-reconcile.timer
-          systemctl start max-order-reconcile.service
+          if ! systemctl start max-order-reconcile.service; then
+            journalctl -u max-order-reconcile.service -n 40 --no-pager -o cat \\
+              | sed -E 's#https?://[^ ]+#<url>#g'
+            exit 1
+          fi
           systemctl is-active --quiet max-order-reconcile.timer
           systemctl is-active --quiet max-webhook.service
           systemctl is-active --quiet avr-ai-controller.service
