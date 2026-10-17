@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect installed releases through protected deploy access
+      - name: Normalize key and inspect installed rollback targets
         shell: bash
         env:
           SSH_PRIVATE_KEY: ${{ secrets.MAX_DEPLOY_SSH_PRIVATE_KEY }}
@@ -29,11 +29,35 @@ jobs:
           test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_USER"
           install -d -m 0700 "$HOME/.ssh"
-          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
-          chmod 0600 "$HOME/.ssh/id_ed25519"
+          python3 - <<'PY'
+          import base64, os, pathlib
+          raw=os.environ["SSH_PRIVATE_KEY"].replace("\r","")
+          variants=[("raw",raw),("literal-newlines",raw.replace("\\n","\n"))]
+          try:
+              variants.append(("base64",base64.b64decode("".join(raw.split()),validate=True).decode()))
+          except Exception:
+              pass
+          seen=set()
+          for name,value in variants:
+              if value in seen: continue
+              seen.add(value)
+              p=pathlib.Path.home()/".ssh"/f"candidate-{name}"
+              p.write_text(value.rstrip("\n")+"\n",encoding="utf-8",newline="\n")
+              p.chmod(0o600)
+          print(f"KEY_DIAG length={len(raw)} lines={len(raw.splitlines())} literal_newlines={'\\n' in raw} candidates={len(seen)}")
+          PY
+          key=""
+          for candidate in "$HOME"/.ssh/candidate-*; do
+            if ssh-keygen -y -f "$candidate" >/dev/null 2>&1; then
+              key="$candidate"
+              echo "KEY_VALID variant=$(basename "$candidate")"
+              break
+            fi
+          done
+          test -n "$key"
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 0600 "$HOME/.ssh/known_hosts"
-          ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+          ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
             "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'SH'
           set -euo pipefail
           echo "SAFE_ACCESS user=$(id -un)"
