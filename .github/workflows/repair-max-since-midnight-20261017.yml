@@ -1,4 +1,4 @@
-name: Repair MAX orders since 2026-10-17 midnight
+name: Inspect safe MAX rollback target
 
 on:
   push:
@@ -10,187 +10,40 @@ permissions:
   contents: read
 
 jobs:
-  repair:
+  inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 5
     steps:
-      - name: Reconcile new and closed MAX orders since Moscow midnight
+      - name: Inspect installed releases through protected deploy access
         shell: bash
         env:
-          SSHPASS: ${{ secrets.SERVER_PASSWORD }}
+          SSH_PRIVATE_KEY: ${{ secrets.MAX_DEPLOY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.MAX_DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.MAX_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.MAX_DEPLOY_USER }}
         run: |
           set -euo pipefail
           set +x
-          echo "STAGE prepare-runner"
-          prepared=0
-          for apt_attempt in 1 2 3; do
-            if sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; then
-              prepared=1
-              break
-            fi
-            sleep 5
-          done
-          test "$prepared" = 1
-          command -v sshpass
-          echo "STAGE runner-ready"
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
           install -d -m 0700 "$HOME/.ssh"
-          printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 0600 "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 0600 "$HOME/.ssh/known_hosts"
-          for attempt in 1 2 3; do
-            echo "STAGE ihc-connect-attempt-$attempt"
-            if sshpass -e ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 'bash -se' <<'SH'
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'SH'
           set -euo pipefail
-          pid="$(systemctl show max-webhook.service -p MainPID --value)"
-          test -n "$pid"
-          test "$pid" != 0
-          app_root="$(readlink -f "/proc/$pid/cwd")"
-          cmd0="$(tr '\0' '\n' <"/proc/$pid/cmdline" | head -n1)"
-          py="$cmd0"
-          case "$(basename "$py")" in *python*) ;; *) py="$(dirname "$cmd0")/python" ;; esac
-          "$py" - "$pid" "$app_root" <<'PY'
-          import hashlib
-          import json
-          import os
-          import subprocess
-          import sys
-          import time
-          from datetime import datetime
-          from pathlib import Path
-          from zoneinfo import ZoneInfo
-
-          import httpx
-
-          pid, app_root = sys.argv[1:]
-          os.chdir(app_root)
-          sys.path.insert(0, app_root)
-          for raw in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0"):
-              if b"=" in raw:
-                  key, value = raw.split(b"=", 1)
-                  os.environ[key.decode(errors="ignore")] = value.decode(errors="ignore")
-
-          from scripts.reconcile_new_orders import fetch_messages, reconcile_messages
-          from webhook.av_rescue_client import retry_pending_syncs
-          from webhook.config import settings
-
-          def digest(value):
-              path = Path(value) if value else None
-              if not path or not path.is_file():
-                  return None
-              h = hashlib.sha256()
-              with path.open("rb") as handle:
-                  for block in iter(lambda: handle.read(1024 * 1024), b""):
-                      h.update(block)
-              return h.hexdigest()
-
-          protected_before = {
-              "excel": digest(settings.excel_file_path),
-              "payroll": digest(settings.payroll_file_path),
-          }
-          oldest_ms = int(datetime(2026, 10, 17, 0, 0, tzinfo=ZoneInfo("Europe/Moscow")).timestamp() * 1000)
-          newest_ms = int(time.time() * 1000)
-          if newest_ms < oldest_ms:
-              raise SystemExit("server time is before requested Moscow midnight")
-
-          summary = {
-              "scanned": 0,
-              "unchanged": 0,
-              "new_orders": 0,
-              "closed_orders": 0,
-              "replayed": 0,
-              "ignored": 0,
-              "invalid": 0,
-          }
-          source_ids = set()
-          with httpx.Client(
-              timeout=30,
-              verify="/etc/ssl/certs/ca-certificates.crt",
-              follow_redirects=False,
-          ) as client:
-              for chat_id in sorted(settings.allowed_chat_ids):
-                  messages = fetch_messages(client, chat_id, oldest_ms, newest_ms)
-                  for raw in messages:
-                      body = raw.get("body") or {}
-                      mid = body.get("mid")
-                      if mid:
-                          source_ids.add(f"max:{chat_id}:{mid}")
-                  result = reconcile_messages(messages, chat_id, {})
-                  for key, value in result.items():
-                      summary[key] += value
-
-          retry = retry_pending_syncs(
-              force=True,
-              source_ids=source_ids,
-              max_items=max(1, len(source_ids)),
-          )
-
-          queue_path = Path(settings.av_rescue_sync_queue_path)
-          if not queue_path.is_absolute():
-              queue_path = Path("/opt/vladislaw/data") / queue_path.name
-          dead_path = queue_path.with_name(queue_path.stem + ".dead" + queue_path.suffix)
-          pending_target = 0
-          dead_target = 0
-          for path, bucket in ((queue_path, "pending"), (dead_path, "dead")):
-              if not path.exists():
-                  continue
-              data = json.loads(path.read_text(encoding="utf-8"))
-              for item in data if isinstance(data, list) else []:
-                  payload = item.get("payload", item) if isinstance(item, dict) else {}
-                  if payload.get("source_id") in source_ids:
-                      if bucket == "pending":
-                          pending_target += 1
-                      else:
-                          dead_target += 1
-
-          protected_after = {
-              "excel": digest(settings.excel_file_path),
-              "payroll": digest(settings.payroll_file_path),
-          }
-          if protected_before != protected_after:
-              raise SystemExit("protected Excel or payroll file changed")
-
-          timer_active = subprocess.run(
-              ["systemctl", "is-active", "--quiet", "max-order-reconcile.timer"]
-          ).returncode == 0
-          webhook_active = subprocess.run(
-              ["systemctl", "is-active", "--quiet", "max-webhook.service"]
-          ).returncode == 0
-          controller_active = subprocess.run(
-              ["systemctl", "is-active", "--quiet", "avr-ai-controller.service"]
-          ).returncode == 0
-          journal = subprocess.run(
-              ["journalctl", "-u", "max-order-reconcile.service", "--since", "2026-10-17 00:00:00", "--no-pager", "-o", "cat"],
-              capture_output=True,
-              text=True,
-              timeout=30,
-              check=True,
-          ).stdout
-          diagnosis = {
-              "permission_errors_seen": "PermissionError" in journal,
-              "connect_errors_seen": "ConnectError" in journal or "sync request failed" in journal,
-              "invalid_messages_seen": "Skipping an invalid MAX message" in journal,
-          }
-          result = {
-              "window_start_moscow": "2026-10-17T00:00:00+03:00",
-              **summary,
-              "queue_retry_attempted": retry["attempted"],
-              "queue_retry_delivered": retry["delivered"],
-              "target_pending": pending_target,
-              "target_dead": dead_target,
-              "timer_active": timer_active,
-              "max_webhook_active": webhook_active,
-              "controller_active": controller_active,
-              "excel_unchanged": True,
-              "payroll_unchanged": True,
-              **diagnosis,
-          }
-          print("REPAIR_MAX_SINCE_MIDNIGHT " + json.dumps(result, ensure_ascii=False, sort_keys=True))
-          if pending_target or dead_target or not timer_active or not webhook_active:
-              raise SystemExit("MAX reconciliation is not healthy after replay")
-          PY
+          echo "SAFE_ACCESS user=$(id -un)"
+          printf 'CURRENT '; readlink -f /opt/vladislaw/runtime/current || true
+          echo "RELEASES"
+          find /opt/vladislaw/releases -mindepth 1 -maxdepth 1 -type d -printf '%T@ %f\n' 2>/dev/null | sort -nr | head -n 10
+          echo "LEGACY_FILES"
+          stat -c '%y %U:%G %a %n' /opt/vladislaw/scripts/reconcile_new_orders.py /opt/vladislaw/webhook/av_rescue_client.py 2>/dev/null || true
+          echo "BACKUPS"
+          find /opt/vladislaw/backups -mindepth 1 -maxdepth 1 -type d -name 'max-sync-queue-retry-*' -printf '%T@ %f\n' 2>/dev/null | sort -nr | head -n 5 || true
+          echo "ACCESS_CHECK"
+          /usr/local/bin/avr-max-deploy --check-access || true
           SH
-            then
-              exit 0
-            fi
-            if [ "$attempt" -lt 3 ]; then sleep 10; fi
-          done
-          exit 1
