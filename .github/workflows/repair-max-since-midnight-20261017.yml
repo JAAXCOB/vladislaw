@@ -1,4 +1,4 @@
-name: Inspect safe MAX rollback target
+name: Inspect active MAX version before rollback
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Normalize key and inspect installed rollback targets
+      - name: Inspect active service and rollback files
         shell: bash
         env:
           SSH_PRIVATE_KEY: ${{ secrets.MAX_DEPLOY_SSH_PRIVATE_KEY }}
@@ -24,50 +24,28 @@ jobs:
         run: |
           set -euo pipefail
           set +x
-          test -n "$SSH_PRIVATE_KEY"
-          test -n "$SSH_KNOWN_HOSTS"
-          test -n "$DEPLOY_HOST"
-          test -n "$DEPLOY_USER"
           install -d -m 0700 "$HOME/.ssh"
-          python3 - <<'PY'
-          import base64, os, pathlib
-          raw=os.environ["SSH_PRIVATE_KEY"].replace("\r","")
-          variants=[("raw",raw),("literal-newlines",raw.replace("\\n","\n"))]
-          try:
-              variants.append(("base64",base64.b64decode("".join(raw.split()),validate=True).decode()))
-          except Exception:
-              pass
-          seen=set()
-          for name,value in variants:
-              if value in seen: continue
-              seen.add(value)
-              p=pathlib.Path.home()/".ssh"/f"candidate-{name}"
-              p.write_text(value.rstrip("\n")+"\n",encoding="utf-8",newline="\n")
-              p.chmod(0o600)
-          print(f"KEY_DIAG length={len(raw)} lines={len(raw.splitlines())} literal_newlines={'\\n' in raw} candidates={len(seen)}")
-          PY
-          key=""
-          for candidate in "$HOME"/.ssh/candidate-*; do
-            if ssh-keygen -y -f "$candidate" >/dev/null 2>&1; then
-              key="$candidate"
-              echo "KEY_VALID variant=$(basename "$candidate")"
-              break
-            fi
-          done
-          test -n "$key"
+          printf '%s' "$SSH_PRIVATE_KEY" | base64 -d > "$HOME/.ssh/id_ed25519"
+          chmod 0600 "$HOME/.ssh/id_ed25519"
+          ssh-keygen -y -f "$HOME/.ssh/id_ed25519" >/dev/null
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 0600 "$HOME/.ssh/known_hosts"
-          ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+          ssh -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
             "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'SH'
           set -euo pipefail
-          echo "SAFE_ACCESS user=$(id -un)"
-          printf 'CURRENT '; readlink -f /opt/vladislaw/runtime/current || true
-          echo "RELEASES"
-          find /opt/vladislaw/releases -mindepth 1 -maxdepth 1 -type d -printf '%T@ %f\n' 2>/dev/null | sort -nr | head -n 10
-          echo "LEGACY_FILES"
-          stat -c '%y %U:%G %a %n' /opt/vladislaw/scripts/reconcile_new_orders.py /opt/vladislaw/webhook/av_rescue_client.py 2>/dev/null || true
-          echo "BACKUPS"
-          find /opt/vladislaw/backups -mindepth 1 -maxdepth 1 -type d -name 'max-sync-queue-retry-*' -printf '%T@ %f\n' 2>/dev/null | sort -nr | head -n 5 || true
-          echo "ACCESS_CHECK"
-          /usr/local/bin/avr-max-deploy --check-access || true
+          pid="$(systemctl show max-webhook.service -p MainPID --value)"
+          echo "PID $pid"
+          echo "SERVICE_CWD $(readlink -f "/proc/$pid/cwd" || true)"
+          echo "SERVICE_EXE $(readlink -f "/proc/$pid/exe" || true)"
+          echo "SERVICE_UNIT"
+          systemctl cat max-webhook.service --no-pager | sed -n '1,120p'
+          echo "RELEASE_ENTRIES"
+          ls -lat /opt/vladislaw/releases 2>&1 | head -n 20
+          current="$(readlink -f /opt/vladislaw/runtime/current)"
+          echo "CURRENT_FILES"
+          stat -c '%y %U:%G %a %n' "$current/scripts/reconcile_new_orders.py" "$current/webhook/av_rescue_client.py" 2>&1 || true
+          echo "BACKUP_CONTENTS"
+          latest="$(find /opt/vladislaw/backups -mindepth 1 -maxdepth 1 -type d -name 'max-sync-queue-retry-*' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)"
+          echo "LATEST_BACKUP $latest"
+          if [ -n "$latest" ]; then ls -la "$latest" 2>&1; fi
           SH
