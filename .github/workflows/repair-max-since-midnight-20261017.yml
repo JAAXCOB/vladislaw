@@ -21,12 +21,23 @@ jobs:
         run: |
           set -euo pipefail
           set +x
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq sshpass
+          echo "STAGE prepare-runner"
+          prepared=0
+          for apt_attempt in 1 2 3; do
+            if sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; then
+              prepared=1
+              break
+            fi
+            sleep 5
+          done
+          test "$prepared" = 1
+          command -v sshpass
+          echo "STAGE runner-ready"
           install -d -m 0700 "$HOME/.ssh"
           printf '%s\n' '130.49.173.150 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILs5wsOrECSBi1iiIo6psmhTxbAPFFCh9ZIp9QUNTmoE' >"$HOME/.ssh/known_hosts"
           chmod 0600 "$HOME/.ssh/known_hosts"
           for attempt in 1 2 3; do
+            echo "STAGE ihc-connect-attempt-$attempt"
             if sshpass -e ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" root@130.49.173.150 'bash -se' <<'SH'
           set -euo pipefail
           pid="$(systemctl show max-webhook.service -p MainPID --value)"
