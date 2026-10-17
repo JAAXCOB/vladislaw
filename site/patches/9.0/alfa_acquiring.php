@@ -1,9 +1,17 @@
 <?php
 require_once __DIR__.'/config.php';
 
+function av_alfa_live_allowed(){
+ $value=getenv('AV_ALFA_LIVE_ALLOWED');
+ return defined('AV_ALFA_LIVE_ALLOWED')?AV_ALFA_LIVE_ALLOWED===true:in_array(strtolower((string)$value),array('1','true','yes'),true);
+}
+function av_alfa_mode($settings=null){
+ $settings=is_array($settings)?$settings:av_payment_settings();
+ return (($settings['alfa_mode']??'test')==='live'&&av_alfa_live_allowed())?'live':'test';
+}
 function av_alfa_base_url($settings=null){
  $settings=is_array($settings)?$settings:av_payment_settings();
- return ($settings['alfa_mode']??'test')==='live'?'https://pay.alfabank.ru/payment/rest/':'https://alfa.rbsuat.com/payment/rest/';
+ return av_alfa_mode($settings)==='live'?'https://pay.alfabank.ru/payment/rest/':'https://alfa.rbsuat.com/payment/rest/';
 }
 function av_alfa_has_credentials($settings=null){
  $settings=is_array($settings)?$settings:av_payment_settings();
@@ -11,10 +19,12 @@ function av_alfa_has_credentials($settings=null){
 }
 function av_alfa_ready($requireEnabled=true){
  $settings=av_payment_settings();
+ if(($settings['alfa_mode']??'test')==='live'&&!av_alfa_live_allowed())return false;
  return (!$requireEnabled||!empty($settings['acquiring_enabled']))&&av_alfa_has_credentials($settings);
 }
 function av_alfa_request($method,$params=array()){
  $settings=av_payment_settings();
+ if(($settings['alfa_mode']??'test')==='live'&&!av_alfa_live_allowed())return array('ok'=>false,'error'=>'Боевой режим заблокирован конфигурацией сервера');
  if(!av_alfa_has_credentials($settings))return array('ok'=>false,'error'=>'Эквайринг Альфа-Банка ещё не настроен');
  $allowed=array('register.do','getOrderStatusExtended.do','refund.do','reverse.do');
  if(!in_array($method,$allowed,true))return array('ok'=>false,'error'=>'Метод банка не разрешён');
@@ -39,8 +49,13 @@ function av_alfa_sync_order(&$order){
  $response=av_alfa_request('getOrderStatusExtended.do',array('orderId'=>$bankId,'language'=>'ru'));
  if(empty($response['ok']))return $response;$data=$response['data'];$status=(int)($data['orderStatus']??$data['OrderStatus']??-1);$name=av_alfa_status_name($status);$previous=$order['payment_status']??'';
  $order['payment_provider']='alfa';$order['payment_status']=$name;$order['payment_updated_at']=date('c');$order['alfa_status_code']=$status;
- $paidAmount=(float)($data['paymentAmountInfo']['paymentState']??0);if(isset($data['amount']))$paidAmount=(float)$data['amount'];elseif(isset($data['Amount']))$paidAmount=(float)$data['Amount'];
- if($name==='paid'){$order['paid_at']=$order['paid_at']??date('c');$order['paid_amount']=round($paidAmount/100,2);if(in_array($order['status']??'',array('done','completed'),true))av_post_order_finance($order);}
+ unset($order['payment_verification']);
+ if($name==='paid'){
+  $proof=av_alfa_verification($order,$data);
+  if(!$proof){$order['payment_status']='verification_required';return array('ok'=>false,'error'=>'Не подтверждены сумма, валюта или идентификатор платежа');}
+  $order['payment_verification']=$proof;$order['paid_at']=$order['paid_at']??date('c');$order['paid_amount']=$proof['amount_minor']/100;
+  if(in_array($order['status']??'',array('done','completed'),true))av_post_order_finance($order);
+ }
  if($name!==$previous&&in_array($name,array('paid','refunded','reversed','declined'),true))av_order_event($order,'payment_'.$name,'Альфа-Банк: '.$name);
  return array('ok'=>true,'status'=>$name,'status_code'=>$status,'paid_amount'=>$order['paid_amount']??0);
 }

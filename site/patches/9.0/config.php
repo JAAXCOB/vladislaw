@@ -396,7 +396,7 @@ function av_write_fleet($x){return av_secure_write(AV_FLEET_FILE,$x);}
 function av_ledger(){return av_secure_read(AV_LEDGER_FILE);}
 function av_write_ledger($x){return av_secure_write(AV_LEDGER_FILE,$x);}
 function av_payment_settings(){
- $defaults=array('legal_name'=>'','inn'=>'','ogrnip'=>'','legal_address'=>'','bank_account'=>'','bank_name'=>'Альфа-Банк','bik'=>'','correspondent_account'=>'','support_email'=>'AVRDriver@yandex.ru','support_phone'=>'8 925 584-58-58','site_name'=>'AV Rescue','acquiring_provider'=>'alfa','acquiring_enabled'=>false,'alfa_mode'=>'test','alfa_username'=>'','alfa_password'=>'','alfa_token'=>'','payout_provider'=>'','payout_enabled'=>false,'cash_commission_enabled'=>true);
+ $defaults=array('legal_name'=>'','inn'=>'','ogrnip'=>'','legal_address'=>'','bank_account'=>'','bank_name'=>'Альфа-Банк','bik'=>'','correspondent_account'=>'','support_email'=>'AVRDriver@yandex.ru','support_phone'=>'8 925 584-58-58','site_name'=>'AV Rescue','acquiring_provider'=>'alfa','acquiring_enabled'=>false,'alfa_mode'=>'test','alfa_sbp_enabled'=>false,'alfa_username'=>'','alfa_password'=>'','alfa_token'=>'','payout_provider'=>'','payout_enabled'=>false,'cash_commission_enabled'=>true);
  $x=av_secure_read(AV_PAYMENT_SETTINGS_FILE);return $x?array_merge($defaults,$x):$defaults;
 }
 function av_geo_settings(){ $x=av_secure_read(AV_GEO_SETTINGS_FILE); return $x?:array('base_address'=>'Дмитровское шоссе, 163с3, Москва','base_lat'=>55.929,'base_lng'=>37.545,'radius_km'=>25,'districts'=>array('САО','СВАО'),'enabled'=>true); }
@@ -406,8 +406,8 @@ function av_ledger_add($workerId,$orderId,$type,$amount,$note=''){
  $holdHours=$type==='driver_credit'?(int)(av_platform_settings()['payout_hold_hours']??48):0;$created=time();$l=av_ledger();$l[]=array('id'=>'TX-'.date('ymdHis').'-'.substr(bin2hex(random_bytes(3)),0,6),'worker_id'=>$workerId,'order_id'=>$orderId,'type'=>$type,'amount'=>round((float)$amount,2),'note'=>$note,'status'=>'posted','at'=>date('c',$created),'available_at'=>date('c',$created+$holdHours*3600));return av_write_ledger($l);
 }
 function av_ledger_add_once($workerId,$orderId,$type,$amount,$note=''){
- foreach(av_ledger() as $row)if((string)($row['worker_id']??'')===(string)$workerId&&(string)($row['order_id']??'')===(string)$orderId&&(string)($row['type']??'')===(string)$type&&($row['status']??'posted')==='posted')return false;
- av_ledger_add($workerId,$orderId,$type,$amount,$note);return true;
+ foreach(av_ledger() as $row)if((string)($row['worker_id']??'')===(string)$workerId&&(string)($row['order_id']??'')===(string)$orderId&&(string)($row['type']??'')===(string)$type&&($row['status']??'posted')==='posted')return round((float)($row['amount']??0),2)===round((float)$amount,2);
+ return av_ledger_add($workerId,$orderId,$type,$amount,$note);
 }
 function av_geo_allowed($lat,$lng,$district=''){
  $g=av_geo_settings();if(empty($g['enabled']))return true;
@@ -484,15 +484,16 @@ function av_order_financials($o,$worker=null){
 }
 function av_finance_record_order($order,$financials){
  if(!empty($financials['excluded']))return false;$orderId=(string)($order['id']??'');if($orderId==='')return false;
- $rows=av_read_finance();foreach($rows as $row)if((string)($row['order_id']??'')===$orderId)return false;
+ $rows=av_read_finance();foreach($rows as $row)if((string)($row['order_id']??'')===$orderId)return ($row['worker_id']??'')===($order['assigned_worker_id']??'')&&round((float)($row['price']??0),2)===round((float)$financials['gross'],2)&&round((float)($row['worker_payout']??0),2)===round((float)$financials['driver_net'],2)&&round((float)($row['commission_amount']??0),2)===round((float)$financials['commission'],2);
  $rows[]=array('id'=>'FN-'.date('ymdHis').'-'.substr(bin2hex(random_bytes(3)),0,6),'order_id'=>$orderId,'worker_id'=>$order['assigned_worker_id']??'','price'=>$financials['gross'],'commission_rate'=>$financials['commission_rate'],'payout_rate'=>$financials['payout_rate'],'commission_amount'=>$financials['commission'],'worker_payout'=>$financials['driver_net'],'loyalty_level'=>$financials['loyalty_level'],'created_at'=>date('c'));
  return av_write_finance($rows);
 }
+require_once __DIR__.'/finance_payment_guard.php';
 function av_post_order_finance(&$order,$worker=null){
  if(!in_array($order['status']??'',array('done','completed'),true))return false;if(!$worker&&!empty($order['assigned_worker_id']))$worker=av_worker_by_id($order['assigned_worker_id']);if(!$worker)return false;
  $f=av_order_financials($order,$worker);$order['final_price']=$f['gross'];$order['commission_rate']=$f['commission_rate'];$order['payout_rate']=$f['payout_rate'];$order['commission_amount']=$f['commission'];$order['worker_payout']=$f['driver_net'];$order['loyalty_level']=$f['loyalty_level'];$order['loyalty_name']=$f['loyalty_name'];
- if(!empty($f['excluded'])){$order['finance_posted']='b2b_separate';return false;}$cash=($order['payment_method']??'cash')==='cash';if(!$cash&&($order['payment_status']??'unpaid')!=='paid'){$order['finance_posted']='awaiting_payment';return false;}
- $type=$cash?'commission_debit':'driver_credit';$amount=$cash?-$f['commission']:$f['driver_net'];$order['ledger_type']=$type;$order['ledger_amount']=$amount;av_finance_record_order($order,$f);av_ledger_add_once($worker['id'],$order['id']??'',$type,$amount,$cash?'Комиссия за наличный заказ':'Доход за безналичный заказ');$order['finance_posted']=true;$order['finance_posted_at']=date('c');return true;
+ if(!empty($f['excluded'])){$order['finance_posted']='b2b_separate';return false;}$cash=($order['payment_method']??'cash')==='cash';if(!$cash&&!av_verified_cashless_payment($order)){$order['finance_posted']='awaiting_payment';return false;}
+ $type=$cash?'commission_debit':'driver_credit';$amount=$cash?-$f['commission']:$f['driver_net'];$order['ledger_type']=$type;$order['ledger_amount']=$amount;if(!av_finance_record_order($order,$f)||!av_ledger_add_once($worker['id'],$order['id']??'',$type,$amount,$cash?'Комиссия за наличный заказ':'Доход за безналичный заказ')){$order['finance_posted']='storage_error';return false;}$order['finance_posted']=true;$order['finance_posted_at']=date('c');return true;
 }
 
 

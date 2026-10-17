@@ -16,10 +16,8 @@ foreach($orders as $k=>$o){
  if($status==='cancelled'){$orders[$k]['cancelled_by']='dispatcher';$orders[$k]['cancelled_at']=date('c');}
  if(in_array($status,array('cancelled','done'),true)&&$workerId){foreach($workers as $wi=>$w)if(($w['id']??'')===$workerId){$workers[$wi]['status']='online';$worker=$workers[$wi];$workersChanged=true;break;}}
  if($status==='done'){
-  $orders[$k]['completed_at']=date('c');$f=av_order_financials($orders[$k],$worker);
-  $orders[$k]['final_price']=$f['gross'];$orders[$k]['commission_rate']=$f['commission_rate'];$orders[$k]['payout_rate']=$f['payout_rate'];$orders[$k]['commission_amount']=$f['commission'];$orders[$k]['worker_payout']=$f['driver_net'];$orders[$k]['loyalty_level']=$f['loyalty_level'];$orders[$k]['loyalty_name']=$f['loyalty_name'];
-  if(!empty($f['excluded']))$orders[$k]['finance_posted']='b2b_separate';
-  elseif($workerId){$cash=($orders[$k]['payment_method']??'cash')==='cash';$orders[$k]['ledger_type']=$cash?'commission_debit':'driver_credit';$orders[$k]['ledger_amount']=$cash?-$f['commission']:$f['driver_net'];av_finance_record_order($orders[$k],$f);av_ledger_add_once($workerId,$id,$orders[$k]['ledger_type'],$orders[$k]['ledger_amount'],$cash?'Комиссия за наличный заказ':'Оплата картой за заказ');$orders[$k]['finance_posted']=true;}
+  $orders[$k]['completed_at']=date('c');
+  av_post_order_finance($orders[$k],$worker);
  }
  $found=true;break;
 }
