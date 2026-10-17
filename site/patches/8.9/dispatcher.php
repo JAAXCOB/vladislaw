@@ -1,5 +1,5 @@
 <?php require_once __DIR__.'/config.php'; header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0'); header('Pragma: no-cache'); av_require_dispatcher_page(); $staffMe=av_staff_user(); ?><!doctype html>
-<html data-av-auth-page="1" lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#08090a"><link rel="manifest" href="/manifest.webmanifest?v=221"><link rel="apple-touch-icon" href="/assets/pwa-icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="AV Rescue"><script src="/pwa.js?v=221" defer></script>
+<html data-av-auth-page="1" lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#08090a"><link rel="manifest" href="/manifest.webmanifest?v=221"><link rel="apple-touch-icon" href="/assets/pwa-icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="AV Rescue"><script src="/pwa.js?v=221" defer></script><link rel="stylesheet" href="/assets/avr-role-ui.css?v=325">
 <title>AV Rescue — Диспетчерская</title>
 <style>
 :root{--red:#ed111c;--bg:#070809;--panel:#111317;--panel2:#0c0e10;--line:#30343a;--muted:#9ea1a7;--green:#4ade80;--yellow:#fbbf24;--blue:#60a5fa}
@@ -21,7 +21,7 @@
 @media(max-width:1050px){.grid{grid-template-columns:1fr 1fr}.summary{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:700px){.grid,.manualGrid{grid-template-columns:1fr}.manualGrid .wide,.manualGrid .full{grid-column:auto}.summary{grid-template-columns:1fr 1fr}#fleetMap{height:380px}}
 </style></head>
-<body><style>
+<body class="role-dispatcher"><style>
 @media(max-width:900px){
   .w{width:min(100% - 22px,1450px)}
   header{height:auto;position:relative}

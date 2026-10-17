@@ -3,7 +3,7 @@ require_once __DIR__.'/config.php'; av_require_user_page(); $u=av_current_user()
 $orders=array_values(array_filter(av_read_orders(),function($o)use($u){return ($o['user_id']??'')===($u['id']??'');}));
 $paySettings=av_payment_settings();
 function av_account_status_ru($status){$map=array('new'=>'Новая заявка','searching'=>'Поиск исполнителя','offered'=>'Предложен исполнителю','assigned'=>'Исполнитель назначен','enroute'=>'Исполнитель в пути','arrived'=>'Исполнитель на месте','loading'=>'Погрузка','in_transit'=>'Автомобиль следует к месту назначения','done'=>'Завершён','completed'=>'Завершён','cancelled'=>'Отменён');return $map[$status]??'Статус уточняется';}
-?><!doctype html><html data-av-auth-page="1" lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#08090a"><link rel="manifest" href="/manifest.webmanifest?v=221"><link rel="apple-touch-icon" href="/assets/pwa-icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="AV Rescue"><script src="/pwa.js?v=221" defer></script><title>Личный кабинет — AV Rescue</title>
+?><!doctype html><html data-av-auth-page="1" lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#08090a"><link rel="manifest" href="/manifest.webmanifest?v=221"><link rel="apple-touch-icon" href="/assets/pwa-icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="AV Rescue"><script src="/pwa.js?v=221" defer></script><link rel="stylesheet" href="/assets/avr-role-ui.css?v=325"><title>Личный кабинет — AV Rescue</title>
 
 <style>
 :root{--red:#ed111c;--bg:#070809;--panel:#111317;--panel2:#0b0d0f;--line:#30343a;--muted:#aeb0b4;--green:#4ade80}
@@ -26,7 +26,7 @@ button,.btn{display:inline-flex;align-items:center;justify-content:center;paddin
 @media(max-width:650px){.row2{grid-template-columns:1fr}.vehicleTypes{grid-template-columns:repeat(2,1fr)}.top{height:auto;padding:14px 0;align-items:flex-start}.toplinks{justify-content:flex-end}.card{margin:20px auto;padding:18px}h1{font-size:27px}}
 </style>
 
-</head><body>
+</head><body class="role-client">
 <div class="wrap"><div class="top"><a class="brand" href="/">AV<b>R</b> Rescue</a><div class="toplinks"><a href="/">Сайт</a><a href="/change-password.php">Изменить пароль</a><a href="/logout.php">Выйти</a></div></div>
 <div class="card"><h1>Личный кабинет</h1><p>Здравствуйте, <?php echo htmlspecialchars($u['name']); ?></p><div class="idbox"><?php echo htmlspecialchars($u['id']); ?></div><p class="muted">Ваш персональный идентификатор AV Rescue.</p>
 <p><b>Телефон:</b> <?php echo htmlspecialchars($u['phone']); ?><br><b>Логин:</b> <?php echo htmlspecialchars($u['login']); ?></p>
