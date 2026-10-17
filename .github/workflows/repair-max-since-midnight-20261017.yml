@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect recovery-only permissions
+      - name: Read-only production health audit
         shell: bash
         env:
           SSH_PRIVATE_KEY: ${{ secrets.MAX_RECOVERY_SSH_PRIVATE_KEY }}
@@ -50,8 +50,33 @@ jobs:
           ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
             "$RECOVERY_USER@$RECOVERY_HOST" 'bash -se' <<'SH'
           set -euo pipefail
-          echo "RECOVERY_ACCESS user=$(id -un)"
-          sudo -n -l
+          echo "AUDIT_TIME $(date -Is)"
+          echo "SERVICE_STATE $(systemctl is-active max-webhook.service)"
+          echo "SERVICE_ENABLED $(systemctl is-enabled max-webhook.service)"
+          pid="$(systemctl show max-webhook.service -p MainPID --value)"
+          test -n "$pid" && test "$pid" != 0
+          ps -o user=,group=,stat=,etimes= -p "$pid" | sed 's/^/SERVICE_PROCESS /'
+          health="$(curl -fsS --max-time 5 http://127.0.0.1:8000/health)"
+          printf 'LOCAL_HEALTH %s\n' "$health"
+          case "$health" in
+            *'"status":"ok"'*) ;;
+            *) echo "Health status is not ok" >&2; exit 1 ;;
+          esac
+          case "$health" in
+            *'"partner_sync_queue":0'*) ;;
+            *) echo "Partner sync queue is not empty" >&2; exit 1 ;;
+          esac
+          printf 'CURRENT_RELEASE %s\n' "$(readlink -f /opt/vladislaw/runtime/current)"
           stat -c 'EXCEL_STAT owner=%U group=%G mode=%a size=%s mtime=%y' /opt/vladislaw/data/excel/evacuation.xlsx
-          stat -c 'PAYROLL_STAT owner=%U group=%G mode=%a size=%s mtime=%y' /opt/vladislaw/data/excel/payroll.xlsx 2>/dev/null || true
+          stat -c 'PAYROLL_STAT owner=%U group=%G mode=%a size=%s mtime=%y' /opt/vladislaw/data/excel/payroll.xlsx
+          test "$(stat -c '%U:%G' /opt/vladislaw/data/excel/evacuation.xlsx)" = "maxbot:maxbot"
+          test "$(stat -c '%U:%G' /opt/vladislaw/data/excel/payroll.xlsx)" = "maxbot:maxbot"
+          current="$(readlink -f /opt/vladislaw/runtime/current)"
+          test -x "$current/.venv/bin/python"
+          "$current/.venv/bin/python" -c 'import openpyxl, httpx, fastapi; print("PYTHON_IMPORTS ok")'
+          printf 'DISK_ROOT '; df -P / | awk 'NR==2 {print "used="$5" available_kb="$4}'
+          errors="$(journalctl -u max-webhook.service --since '30 minutes ago' --no-pager 2>/dev/null | grep -Eic 'traceback|permission denied|partner sync failed|uncaught|fatal' || true)"
+          printf 'ERROR_MARKERS_30M %s\n' "$errors"
+          test "$errors" -eq 0
+          echo "AUDIT_RESULT OK"
           SH
