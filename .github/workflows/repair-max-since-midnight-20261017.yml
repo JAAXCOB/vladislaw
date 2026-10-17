@@ -1,4 +1,4 @@
-name: Inspect active MAX version before rollback
+name: Restore previous working MAX release
 
 on:
   push:
@@ -10,11 +10,11 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  rollback:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Inspect active service and rollback files
+      - name: Switch MAX to previous untouched release and verify
         shell: bash
         env:
           SSH_PRIVATE_KEY: ${{ secrets.MAX_DEPLOY_SSH_PRIVATE_KEY }}
@@ -32,20 +32,39 @@ jobs:
           chmod 0600 "$HOME/.ssh/known_hosts"
           ssh -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
             "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'SH'
-          set -euo pipefail
+          set -Eeuo pipefail
+          current_link=/opt/vladislaw/runtime/current
+          target=/opt/vladislaw/releases/de9538f4fb53f87335d165688725535d9d04fb19
+          restart=/usr/local/sbin/avr-max-restart
+          old="$(readlink -f "$current_link")"
+          test "$old" != "$target"
+          test -d "$target"
+          test -x "$target/.venv/bin/python"
+          test -f "$target/webhook/main.py"
+          test -f "$target/webhook/av_rescue_client.py"
+          before_target="$old"
+          before_hash="$(sha256sum "$old/webhook/av_rescue_client.py" | awk '{print $1}')"
+          target_hash="$(sha256sum "$target/webhook/av_rescue_client.py" | awk '{print $1}')"
+          rollback() {
+            rm -f /opt/vladislaw/runtime/current.rollback
+            ln -s "$old" /opt/vladislaw/runtime/current.rollback
+            mv -Tf /opt/vladislaw/runtime/current.rollback "$current_link"
+            sudo -n "$restart" || true
+          }
+          trap rollback ERR
+          rm -f /opt/vladislaw/runtime/current.previous
+          ln -s "$old" /opt/vladislaw/runtime/current.previous
+          rm -f /opt/vladislaw/runtime/current.next
+          ln -s "$target" /opt/vladislaw/runtime/current.next
+          mv -Tf /opt/vladislaw/runtime/current.next "$current_link"
+          sudo -n "$restart"
           pid="$(systemctl show max-webhook.service -p MainPID --value)"
-          echo "PID $pid"
-          echo "SERVICE_CWD $(readlink -f "/proc/$pid/cwd" || true)"
-          echo "SERVICE_EXE $(readlink -f "/proc/$pid/exe" || true)"
-          echo "SERVICE_UNIT"
-          systemctl cat max-webhook.service --no-pager | sed -n '1,120p'
-          echo "RELEASE_ENTRIES"
-          ls -lat /opt/vladislaw/releases 2>&1 | head -n 20
-          current="$(readlink -f /opt/vladislaw/runtime/current)"
-          echo "CURRENT_FILES"
-          stat -c '%y %U:%G %a %n' "$current/scripts/reconcile_new_orders.py" "$current/webhook/av_rescue_client.py" 2>&1 || true
-          echo "BACKUP_CONTENTS"
-          latest="$(find /opt/vladislaw/backups -mindepth 1 -maxdepth 1 -type d -name 'max-sync-queue-retry-*' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)"
-          echo "LATEST_BACKUP $latest"
-          if [ -n "$latest" ]; then ls -la "$latest" 2>&1; fi
+          test -n "$pid"
+          test "$pid" != 0
+          active="$(readlink -f "$current_link")"
+          test "$active" = "$target"
+          health="$(curl -fsS --max-time 5 http://127.0.0.1:8000/health)"
+          trap - ERR
+          printf 'RESTORED_PREVIOUS_MAX {"from":"%s","to":"%s","pid":"%s","old_client_hash":"%s","restored_client_hash":"%s","health":%s}\n' \
+            "$before_target" "$active" "$pid" "$before_hash" "$target_hash" "$health"
           SH
