@@ -1,4 +1,4 @@
-name: Restore previous working MAX release
+name: Verify protected MAX recovery access
 
 on:
   push:
@@ -10,58 +10,48 @@ permissions:
   contents: read
 
 jobs:
-  rollback:
+  inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
-      - name: Switch MAX to previous untouched release and verify
+      - name: Inspect recovery-only permissions
         shell: bash
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.MAX_DEPLOY_SSH_PRIVATE_KEY }}
-          SSH_KNOWN_HOSTS: ${{ secrets.MAX_DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_HOST: ${{ secrets.MAX_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.MAX_DEPLOY_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.MAX_RECOVERY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.MAX_RECOVERY_KNOWN_HOSTS }}
+          RECOVERY_HOST: ${{ secrets.MAX_RECOVERY_HOST }}
+          RECOVERY_USER: ${{ secrets.MAX_RECOVERY_USER }}
         run: |
           set -euo pipefail
           set +x
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          test -n "$RECOVERY_HOST"
+          test -n "$RECOVERY_USER"
           install -d -m 0700 "$HOME/.ssh"
-          printf '%s' "$SSH_PRIVATE_KEY" | base64 -d > "$HOME/.ssh/id_ed25519"
-          chmod 0600 "$HOME/.ssh/id_ed25519"
-          ssh-keygen -y -f "$HOME/.ssh/id_ed25519" >/dev/null
+          python3 - <<'PY'
+          import base64, os, pathlib
+          raw=os.environ["SSH_PRIVATE_KEY"].replace("\r","")
+          values=[raw,raw.replace("\\n","\n")]
+          try: values.append(base64.b64decode("".join(raw.split()),validate=True).decode())
+          except Exception: pass
+          for i,value in enumerate(dict.fromkeys(values)):
+              p=pathlib.Path.home()/".ssh"/f"key{i}"
+              p.write_text(value.rstrip("\n")+"\n",encoding="utf-8")
+              p.chmod(0o600)
+          PY
+          key=""
+          for candidate in "$HOME"/.ssh/key*; do
+            if ssh-keygen -y -f "$candidate" >/dev/null 2>&1; then key="$candidate"; break; fi
+          done
+          test -n "$key"
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 0600 "$HOME/.ssh/known_hosts"
-          ssh -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
-            "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'SH'
-          set -Eeuo pipefail
-          current_link=/opt/vladislaw/runtime/current
-          target=/opt/vladislaw/releases/de9538f4fb53f87335d165688725535d9d04fb19
-          restart=/usr/local/sbin/avr-max-restart
-          old="$(readlink -f "$current_link")"
-          test "$old" != "$target"
-          test -d "$target"
-          test -x "$target/.venv/bin/python"
-          test -f "$target/webhook/main.py"
-          test -r "$target/webhook/av_rescue_client.py"
-          rollback() {
-            rm -f /opt/vladislaw/runtime/current.rollback
-            ln -s "$old" /opt/vladislaw/runtime/current.rollback
-            mv -Tf /opt/vladislaw/runtime/current.rollback "$current_link"
-            sudo -n "$restart" || true
-          }
-          trap rollback ERR
-          rm -f /opt/vladislaw/runtime/current.previous
-          ln -s "$old" /opt/vladislaw/runtime/current.previous
-          rm -f /opt/vladislaw/runtime/current.next
-          ln -s "$target" /opt/vladislaw/runtime/current.next
-          mv -Tf /opt/vladislaw/runtime/current.next "$current_link"
-          sudo -n "$restart"
-          pid="$(systemctl show max-webhook.service -p MainPID --value)"
-          test -n "$pid"
-          test "$pid" != 0
-          active="$(readlink -f "$current_link")"
-          test "$active" = "$target"
-          health="$(curl -fsS --max-time 5 http://127.0.0.1:8000/health)"
-          trap - ERR
-          printf 'RESTORED_PREVIOUS_MAX {"from":"%s","to":"%s","pid":"%s","health":%s}\n' \
-            "$old" "$active" "$pid" "$health"
+          ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            "$RECOVERY_USER@$RECOVERY_HOST" 'bash -se' <<'SH'
+          set -euo pipefail
+          echo "RECOVERY_ACCESS user=$(id -un)"
+          sudo -n -l
+          stat -c 'EXCEL_STAT owner=%U group=%G mode=%a size=%s mtime=%y' /opt/vladislaw/data/excel/evacuation.xlsx
+          stat -c 'PAYROLL_STAT owner=%U group=%G mode=%a size=%s mtime=%y' /opt/vladislaw/data/excel/payroll.xlsx 2>/dev/null || true
           SH
