@@ -10,28 +10,27 @@ concurrency:
   group: deploy-max-bot-production
   cancel-in-progress: false
 jobs:
-  inspect-root-access:
+  inspect-root-key-access:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       CURRENT_HOST: ${{ secrets.MAX_DEPLOY_HOST }}
-      SERVER_USER: ${{ secrets.SERVER_USER }}
-      SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+      SSH_PRIVATE_KEY: ${{ secrets.MAX_DEPLOY_SSH_PRIVATE_KEY }}
       SSH_KNOWN_HOSTS: ${{ secrets.MAX_DEPLOY_KNOWN_HOSTS }}
     steps:
-      - name: Test existing privileged credentials on current IHC host without changes
+      - name: Test existing deploy key for root read-only access
         shell: bash
         run: |
           set -euo pipefail
           set +x
           test -n "$CURRENT_HOST"
-          test -n "$SERVER_USER"
-          test -n "$SERVER_PASSWORD"
+          test -n "$SSH_PRIVATE_KEY"
           test -n "$SSH_KNOWN_HOSTS"
           install -d -m 0700 "$HOME/.ssh"
+          printf '%s' "$SSH_PRIVATE_KEY" | base64 --decode > "$HOME/.ssh/id_ed25519"
+          chmod 0600 "$HOME/.ssh/id_ed25519"
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 0600 "$HOME/.ssh/known_hosts"
-          sshpass -p "$SERVER_PASSWORD" ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=20 \
-            "$SERVER_USER@$CURRENT_HOST" \
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            "root@$CURRENT_HOST" \
             'set -eu; id; test -r /opt/vladislaw/data/excel/evacuation.xlsx && echo PAYROLL_READABLE; test -w /opt/vladislaw/data/excel/evacuation.xlsx && echo PAYROLL_WRITABLE'
