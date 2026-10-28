@@ -235,6 +235,7 @@ $workerLng=$locationUsable?av_partner_number_or_null($worker['lng']??null,-180,1
     $allOrders=av_partner_orders();
     $now=time();
     $priority=av_partner_priority_state($allOrders,$now);
+    $blockingIds=array_flip($priority['blocking_order_ids']);
     $chainTarget=av_partner_chain_target($allOrders,$now);
     $chainTargetId=(string)($chainTarget['id']??'');
     $targetLat=av_partner_number_or_null($chainTarget['pickup_lat']??null,-90,90);
@@ -264,11 +265,12 @@ $workerLng=$locationUsable?av_partner_number_or_null($worker['lng']??null,-180,1
         $distance=$metrics['distance_km'];
         $radius=av_partner_distribution_radius_km($order,$now);
         $withinRadius=true;
+        $priorityAllowed=!$priority['active']||isset($blockingIds[(string)($order['id']??'')]);
         $canClaim=$status==='claimed'&&$isMine;
-        // An old priority order no longer blocks every other B2B order.  The
-        // feed ranks a feasible chain while the claim endpoint still performs
-        // the atomic one-active-order check.
-        if($status==='available'&&$withinRadius)$canClaim=true;
+        // Once an unassigned MAX/B2B order reaches 12 hours, only overdue or
+        // manually prioritised orders may be claimed. Other orders stay
+        // visible so the driver understands why acceptance is restricted.
+        if($status==='available'&&$withinRadius&&$priorityAllowed)$canClaim=true;
         if(!$isMine){
             if($withinRadius)$counts['eligible_available']++;
             else $counts['waiting_radius']++;
@@ -296,7 +298,7 @@ $workerLng=$locationUsable?av_partner_number_or_null($worker['lng']??null,-180,1
             'is_mine'=>$isMine,
             'driver_stage'=>$isMine?($order['driver_stage']??'to_pickup'):'',
             'can_claim'=>$canClaim,
-            'claim_blocked'=>false,
+            'claim_blocked'=>$status==='available'&&$priority['active']&&!isset($blockingIds[(string)($order['id']??'')]),
             'age_seconds'=>$order['age_seconds'],
             'age_minutes'=>$order['age_minutes'],
             'is_overdue'=>$order['is_overdue'],
@@ -333,9 +335,8 @@ $workerLng=$locationUsable?av_partner_number_or_null($worker['lng']??null,-180,1
     usort($mine,$sort);usort($available,$sort);
     foreach($available as $index=>$unused)$available[$index]['chain_rank']=$index+1;
     foreach($mine as $index=>$unused)$mine[$index]['chain_rank']=0;
-    // Only one order is active at a time.  When no order is active, all ranked
-    // chain candidates remain visible so the driver is not forced to travel
-    // empty to a distant priority order.
+    // Only one order is active at a time. All ranked candidates remain visible,
+    // but a pending priority order disables acceptance of non-priority orders.
     $visible=!empty($mine)?$mine:$available;
     return array('orders'=>$visible,'counts'=>$counts);
 }

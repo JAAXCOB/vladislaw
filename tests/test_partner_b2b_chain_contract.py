@@ -14,10 +14,11 @@ class PartnerB2BChainContractTests(unittest.TestCase):
         self.assertIn("function av_partner_order_deadline_timestamp", HELPERS)
         self.assertIn("'deadline_seconds_left'", HELPERS)
 
-    def test_priority_order_does_not_globally_block_chain(self):
-        self.assertNotIn("$priorityAllowed", HELPERS)
-        self.assertIn("'claim_blocked'=>false", HELPERS)
-        self.assertIn("if($status==='available'&&$withinRadius)$canClaim=true;", HELPERS)
+    def test_overdue_priority_blocks_other_b2b_claims(self):
+        self.assertIn("$blockingIds=array_flip($priority['blocking_order_ids']);", HELPERS)
+        self.assertIn("$priorityAllowed=!$priority['active']||isset($blockingIds", HELPERS)
+        self.assertIn("if($status==='available'&&$withinRadius&&$priorityAllowed)$canClaim=true;", HELPERS)
+        self.assertIn("'claim_blocked'=>$status==='available'&&$priority['active']", HELPERS)
         self.assertNotIn("OVERDUE_B2B_MAX_PRIORITY", ASSIGNMENT_GUARD)
 
     def test_chain_prefers_deadline_then_route_progress(self):
