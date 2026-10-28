@@ -224,6 +224,11 @@ def sync_extracted_job(
     """Send a new or closed partner job to AV Rescue using a stable MAX ID."""
     if not message_id or not (job.is_new_job_request or job.is_closed_job_report):
         return
+    if job.is_closed_job_report:
+        from webhook.reporting_rules import is_explicit_close_message
+
+        if not is_explicit_close_message(original_text):
+            return
 
     source_id = f"max:{chat_id or 'unknown'}:{message_id}"
     destination_service, destination = _split_destination_field(original_text, job.destination)

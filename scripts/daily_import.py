@@ -46,7 +46,7 @@ from webhook.max_client import send_message
 from webhook.models import Message
 from webhook.open_jobs_tracker import OpenJobsTracker
 from webhook.payroll_writer import append_salary_row
-from webhook.reporting_rules import employee_header, is_bot_generated_message
+from webhook.reporting_rules import employee_header, is_bot_generated_message, is_explicit_close_message
 from webhook.storage import atomic_write_json, locked_target
 
 STATE_PATH = Path(__file__).parent.parent / "data" / "import_state.json"
@@ -247,6 +247,14 @@ def main() -> None:
 
             if not job.is_closed_job_report:
                 print("    -> заявка не закрыта / не по теме, пропущено")
+                skipped_count += 1
+                if not payroll_only:
+                    processed_mids.add(mid)
+                    message_fingerprints[mid] = fingerprint
+                continue
+
+            if not is_explicit_close_message(text):
+                print("    -> нет явной фразы 'Заявка закрыта', Excel и закрытие пропущены")
                 skipped_count += 1
                 if not payroll_only:
                     processed_mids.add(mid)

@@ -19,6 +19,7 @@ os.environ.setdefault("MAX_WEBHOOK_URL", "https://example.com/webhook")
 os.environ.setdefault("MAX_CHAT_ID", "987654321")
 
 from webhook.extractor import _structured_request_overrides  # noqa: E402
+from webhook.schema import ExtractedJob  # noqa: E402
 from webhook import av_rescue_client, event_inbox  # noqa: E402
 from webhook import open_jobs_tracker  # noqa: E402
 import webhook.main as main_module  # noqa: E402
@@ -146,6 +147,55 @@ def test_explicit_close_sync_uses_plate_and_stable_source_id(monkeypatch) -> Non
         "license_plate": "А123ВС797",
         "comment": "Заявка закрыта А123ВС797",
     }]
+
+
+def test_fuzzy_close_does_not_sync_to_site(monkeypatch) -> None:
+    captured = []
+    monkeypatch.setattr(av_rescue_client, "_deliver_with_retry", captured.append)
+    job = ExtractedJob(
+        is_closed_job_report=True,
+        license_plate="А123ВС797",
+        status="completed",
+        services=[{"name": "Эвакуация", "price_rub": 4500}],
+        total_amount_rub=4500,
+    )
+
+    av_rescue_client.sync_extracted_job(
+        job,
+        -73220767988430,
+        "mid.close-fuzzy",
+        "Закрыл заказ А123ВС797, сумма 4500",
+    )
+
+    assert captured == []
+
+
+def test_fuzzy_close_does_not_enter_excel(monkeypatch) -> None:
+    job = ExtractedJob(
+        is_closed_job_report=True,
+        license_plate="А123ВС797",
+        status="completed",
+        services=[{"name": "Эвакуация", "price_rub": 4500}],
+        total_amount_rub=4500,
+    )
+    monkeypatch.setattr(main_module, "extract_job", lambda *_args, **_kwargs: job)
+    monkeypatch.setattr(main_module, "sync_extracted_job", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main_module,
+        "append_job",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fuzzy close must not enter the transport register")
+        ),
+    )
+
+    main_module.process_message(
+        "Закрыл заказ А123ВС797, сумма 4500",
+        "Водитель",
+        "Водитель",
+        1_793_200_000_000,
+        -73220767988430,
+        "mid.close-fuzzy",
+    )
 
 
 # ---------------------------------------------------------------------------

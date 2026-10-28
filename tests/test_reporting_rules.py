@@ -1,4 +1,9 @@
-from webhook.reporting_rules import employee_header, parse_explicit_closed_report, report_is_writable
+from webhook.reporting_rules import (
+    employee_header,
+    is_explicit_close_message,
+    parse_explicit_closed_report,
+    report_is_writable,
+)
 
 
 def test_structured_close_sums_all_components():
@@ -59,6 +64,14 @@ def test_distance_only_close_includes_base_rate():
 def test_bot_only_and_bare_close_do_not_enter_excel():
     assert parse_explicit_closed_report("Закрыта") is None
     assert parse_explicit_closed_report("Заявка закрыта О948РК797 (для бота)") is None
+
+
+def test_excel_close_requires_explicit_driver_phrase():
+    assert is_explicit_close_message("Заявка закрыта А123ВС797")
+    assert not is_explicit_close_message("Заявку закрыли А123ВС797")
+    assert not is_explicit_close_message("Закрыл заказ А123ВС797")
+    assert not is_explicit_close_message("Довёз А123ВС797, всё готово")
+    assert not is_explicit_close_message("Заявка А123ВС797 всё ещё не закрыта")
 
 
 def test_employee_aliases_match_payroll_headers():

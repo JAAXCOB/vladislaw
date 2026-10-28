@@ -67,6 +67,12 @@ def normalize_plate(value: str) -> str:
     return "".join(match.groups()).upper().translate(CYRILLIC)
 
 
+def is_explicit_close_message(text: str) -> bool:
+    """Accept Excel/accounting closes only when the driver states the close explicitly."""
+    compact = " ".join((text or "").split()).casefold()
+    return bool(re.search(r"\bзаявк\w*\s+закрыт\w*\b", compact))
+
+
 def employee_header(sender_name: str) -> str:
     value = (sender_name or "").strip().casefold()
     if value in EMPLOYEE_ALIASES:
@@ -86,7 +92,7 @@ def parse_explicit_closed_report(text: str) -> ExtractedJob | None:
     """Parse the partner's regular close-report format without an AI guess."""
     compact = " ".join((text or "").replace("|", " ").split())
     lower = compact.casefold()
-    if not re.search(r"\bзаявк\w*\s+закрыт\w*\b", lower):
+    if not is_explicit_close_message(compact):
         return None
     if "для бота" in lower:
         return None

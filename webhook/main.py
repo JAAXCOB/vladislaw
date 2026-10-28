@@ -21,7 +21,7 @@ from webhook.extractor import extract_job
 from webhook.models import Update, UpdateType
 from webhook.open_jobs_tracker import OpenJobsTracker
 from webhook.payroll_writer import append_salary_row, ensure_employee_column
-from webhook.reporting_rules import employee_header
+from webhook.reporting_rules import employee_header, is_explicit_close_message
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -110,6 +110,13 @@ def process_message(
 
     if not job.is_closed_job_report:
         log.info("Message does not report a closed job | mid=%s", message_id)
+        return
+
+    if not is_explicit_close_message(text):
+        log.info(
+            "Closed-job guess omitted from Excel: explicit 'Заявка закрыта' is missing | mid=%s",
+            message_id,
+        )
         return
 
     if not settings.excel_file_path:
