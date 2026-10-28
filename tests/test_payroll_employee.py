@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
 
 import openpyxl
+from openpyxl.styles import Font
 
 from webhook.models import Message, User
 from webhook.excel_writer import append_job
 from webhook.payroll_writer import (
+    INACTIVE_EMPLOYEE_NAMES,
     _match_employee_column,
     append_salary_row,
     ensure_employee_column,
@@ -35,6 +37,67 @@ def test_ensure_employee_column_is_idempotent_and_preserves_existing_data(tmp_pa
     assert saved_sheet.cell(row=2, column=2).value == "Е523ТТ797"
     assert saved_sheet.cell(row=2, column=4).value == 4500
     assert saved_sheet.max_column == 6
+
+
+def test_new_month_omits_inactive_employees_but_preserves_history(tmp_path):
+    payroll_path = tmp_path / "evacuation.xlsx"
+    workbook = openpyxl.Workbook()
+    october = workbook.active
+    october.title = "Октябрь"
+    headers = [
+        "Дата",
+        "VIN/Гос.номер ТС",
+        "Услуга",
+        "Геннадий Щурихин",
+        "Бодров Максим",
+        "Максим Максимов",
+        "Баширов Гоша",
+        "Кирилл Кирилл",
+        "Коля Николай",
+        750,
+    ]
+    for column, header in enumerate(headers, 1):
+        cell = october.cell(row=1, column=column, value=header)
+        cell.font = Font(bold=True)
+        october.column_dimensions[cell.column_letter].width = 18 + column
+    october.cell(row=2, column=2, value="А123АА797")
+    october.cell(row=2, column=5, value=4200)
+    workbook.save(payroll_path)
+
+    result = ensure_employee_column(
+        payroll_path,
+        "Акименко Николай",
+        at=datetime(2026, 11, 1, 0, 5, tzinfo=timezone.utc),
+    )
+
+    checked = openpyxl.load_workbook(payroll_path)
+    assert checked["Октябрь"].cell(row=2, column=5).value == 4200
+    assert [checked["Октябрь"].cell(row=1, column=i).value for i in range(1, 11)] == headers
+
+    november = checked["Ноябрь"]
+    november_headers = [
+        november.cell(row=1, column=i).value
+        for i in range(1, november.max_column + 1)
+    ]
+    assert result == ("Ноябрь", 6, True)
+    assert november_headers == [
+        "Дата",
+        "VIN/Гос.номер ТС",
+        "Услуга",
+        "Геннадий Щурихин",
+        750,
+        "Акименко Николай",
+    ]
+    assert november.max_row == 1
+    assert november.cell(row=1, column=4).font.bold is True
+    assert november.column_dimensions["D"].width == october.column_dimensions["D"].width
+    assert INACTIVE_EMPLOYEE_NAMES == {
+        "Максим Максимов",
+        "Баширов Гоша",
+        "Кирилл Кирилл",
+        "Коля Николай",
+        "Максим Бодров",
+    }
 
 
 def test_full_name_separates_employees_with_same_first_name():

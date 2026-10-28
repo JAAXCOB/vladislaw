@@ -49,6 +49,18 @@ MONTH_NAMES = {
 
 FIXED_COLUMNS = {"Дата", "VIN/Гос.номер ТС", "Услуга", "Сумма"}
 
+# Historical sheets keep every employee. These employees are omitted only
+# when the next monthly sheet is created. The identity comparison is
+# order-insensitive because older headers use both "Имя Фамилия" and
+# "Фамилия Имя".
+INACTIVE_EMPLOYEE_NAMES = {
+    "Максим Максимов",
+    "Баширов Гоша",
+    "Кирилл Кирилл",
+    "Коля Николай",
+    "Максим Бодров",
+}
+
 DEFAULT_FONT = Font(name="Calibri", size=11)
 CENTER_ALIGN = Alignment(horizontal="center")
 DATE_FORMAT = "mm-dd-yy"
@@ -63,6 +75,23 @@ class AmbiguousEmployeeError(Exception):
 
 def _sheet_name(dt: datetime) -> str:
     return MONTH_NAMES[dt.month]
+
+
+def _employee_identity(value: str) -> tuple[str, ...]:
+    return tuple(sorted(value.casefold().split()))
+
+
+INACTIVE_EMPLOYEE_IDENTITIES = {
+    _employee_identity(name) for name in INACTIVE_EMPLOYEE_NAMES
+}
+
+
+def _is_inactive_employee_header(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and value.strip() not in FIXED_COLUMNS
+        and _employee_identity(value.strip()) in INACTIVE_EMPLOYEE_IDENTITIES
+    )
 
 
 def _get_or_create_sheet(wb: openpyxl.Workbook, sheet_name: str, path: Path) -> Worksheet:
@@ -102,9 +131,19 @@ def _get_or_create_sheet(wb: openpyxl.Workbook, sheet_name: str, path: Path) -> 
     template_ws = wb[previous_existing_name]
     ws = wb.create_sheet(sheet_name)
 
-    for col_idx in range(1, template_ws.max_column + 1):
-        src = template_ws.cell(row=1, column=col_idx)
-        dst = ws.cell(row=1, column=col_idx)
+    target_col_idx = 1
+    for source_col_idx in range(1, template_ws.max_column + 1):
+        src = template_ws.cell(row=1, column=source_col_idx)
+        if _is_inactive_employee_header(src.value):
+            log.info(
+                "Omitted inactive payroll employee from new sheet | "
+                "sheet='%s' | employee='%s'",
+                sheet_name,
+                src.value,
+            )
+            continue
+
+        dst = ws.cell(row=1, column=target_col_idx)
         dst.value = src.value
         if src.has_style:
             dst.font = copy(src.font)
@@ -112,9 +151,10 @@ def _get_or_create_sheet(wb: openpyxl.Workbook, sheet_name: str, path: Path) -> 
             dst.fill = copy(src.fill)
             dst.border = copy(src.border)
             dst.number_format = src.number_format
-
-    for col_letter, col_dim in template_ws.column_dimensions.items():
-        ws.column_dimensions[col_letter].width = col_dim.width
+        ws.column_dimensions[dst.column_letter].width = template_ws.column_dimensions[
+            src.column_letter
+        ].width
+        target_col_idx += 1
 
     log.info(
         "Created shared payroll sheet '%s' from '%s' in %s",
