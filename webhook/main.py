@@ -58,6 +58,7 @@ def ensure_payroll_structure() -> None:
             "Николай Большаков",
             "Бодров Максим",
             "Геннадий Щурихин",
+            "Акименко Николай",
         ):
             sheet, column, created = ensure_employee_column(
                 settings.payroll_file_path,
