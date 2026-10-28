@@ -19,7 +19,7 @@ jobs:
       SSH_PRIVATE_KEY: ${{ secrets.MAX_DEPLOY_SSH_PRIVATE_KEY }}
       SSH_KNOWN_HOSTS: ${{ secrets.MAX_DEPLOY_KNOWN_HOSTS }}
     steps:
-      - name: Verify restricted key access without changing server
+      - name: Inspect restricted maintenance permissions without changing server
         shell: bash
         run: |
           set -euo pipefail
@@ -35,4 +35,4 @@ jobs:
           chmod 0600 "$HOME/.ssh/known_hosts"
           ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            'if test -r /opt/vladislaw/data/excel/evacuation.xlsx; then echo PAYROLL_READABLE; else echo PAYROLL_NOT_READABLE; fi'
+            'set -eu; id; if test -r /opt/vladislaw/data/excel/evacuation.xlsx; then echo PAYROLL_READABLE; else echo PAYROLL_NOT_READABLE; fi; if test -w /opt/vladislaw/data/excel/evacuation.xlsx; then echo PAYROLL_WRITABLE; else echo PAYROLL_NOT_WRITABLE; fi; sudo -n -l'
